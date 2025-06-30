@@ -1,0 +1,26 @@
+{
+  "name": "slack-claude-code-integration",
+  "version": "1.0.0",
+  "description": "Slack integration for Claude Code using MCP (Model Context Protocol)",
+  "private": true,
+  "scripts": {
+    "setup": "npm install && cd slack-bot && npm install && cd ../claude-code-mcp && npm install",
+    "start:mcp": "cd claude-code-mcp && npm start",
+    "start:bot": "cd slack-bot && npm start",
+    "dev": "concurrently \"npm run start:mcp\" \"npm run start:bot\"",
+    "docker:build": "docker-compose build",
+    "docker:up": "docker-compose up",
+    "docker:down": "docker-compose down"
+  },
+  "keywords": [
+    "slack",
+    "claude",
+    "mcp",
+    "integration"
+  ],
+  "author": "Engineers Hub Ltd",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

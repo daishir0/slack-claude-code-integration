@@ -1,0 +1,20 @@
+{
+  "name": "claude-code-mcp",
+  "version": "1.0.0",
+  "description": "Claude Code MCP Server wrapper for Slack integration",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": ["claude", "mcp", "server"],
+  "author": "Engineers Hub Ltd",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.13.2",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  }
+}

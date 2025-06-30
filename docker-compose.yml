@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # Claude Code MCP Server
+  claude-code-mcp:
+    build:
+      context: ./claude-code-mcp
+      dockerfile: Dockerfile
+    container_name: claude-code-mcp
+    environment:
+      - CLAUDE_PATH=${CLAUDE_PATH:-claude}
+      - PROJECT_PATH=/workspace
+      - DEBUG=${DEBUG:-false}
+    volumes:
+      # Mount your project directory
+      - ${PROJECT_PATH:-./workspace}:/workspace
+      # Mount Claude credentials if needed
+      - ${HOME}/.config/claude:/root/.config/claude:ro
+    networks:
+      - claude-network
+    restart: unless-stopped
+
+  # Slack Bot
+  slack-bot:
+    build:
+      context: ./slack-bot
+      dockerfile: Dockerfile
+    container_name: slack-claude-bot
+    environment:
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}
+      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
+      - CLAUDE_PATH=claude
+      - PROJECT_PATH=/workspace
+      - DEBUG=${DEBUG:-false}
+    volumes:
+      # Share the same workspace
+      - ${PROJECT_PATH:-./workspace}:/workspace
+    depends_on:
+      - claude-code-mcp
+    networks:
+      - claude-network
+    restart: unless-stopped
+
+networks:
+  claude-network:
+    driver: bridge
+
+volumes:
+  workspace:
