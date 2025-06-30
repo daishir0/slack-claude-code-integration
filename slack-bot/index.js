@@ -262,8 +262,8 @@ app.error(async (error) => {
 // Start the app
 (async () => {
   try {
-    // Start with test mode first
-    process.env.TEST_MODE = 'true';
+    // Check if running in test mode from environment
+    const testMode = process.env.TEST_MODE === 'true';
     
     // Connect to Claude Code MCP Server
     await claudeClient.connect();
@@ -272,7 +272,11 @@ app.error(async (error) => {
     await app.start();
     console.log('⚡️ Slack Claude Code Bot is running!');
     console.log(`Project path: ${process.env.PROJECT_PATH || 'current directory'}`);
-    console.log('🧪 Running in TEST MODE - using echo commands');
+    if (testMode) {
+      console.log('🧪 Running in TEST MODE - using echo commands');
+    } else {
+      console.log('🚀 Running in PRODUCTION MODE - using Claude Code CLI');
+    }
     
   } catch (error) {
     console.error('Failed to start app:', error);
