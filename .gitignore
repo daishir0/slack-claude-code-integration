@@ -38,6 +38,13 @@ coverage/
 # Build output
 dist/
 build/
+*.js
+*.js.map
+*.d.ts
+*.d.ts.map
+
+# Keep config files
+!eslint.config.js
 
 # Workspace files (if using local testing)
 workspace/

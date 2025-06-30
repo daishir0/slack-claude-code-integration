@@ -4,6 +4,7 @@
   "description": "Claude Code MCP Server wrapper for Slack integration",
   "main": "index.js",
   "scripts": {
+    "build": "tsc --project ../tsconfig.json",
     "start": "node index.js",
     "dev": "nodemon index.js"
   },
@@ -19,6 +20,8 @@
     "dotenv": "^16.4.5"
   },
   "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.0.7",
     "nodemon": "^3.1.7"
   }
 }

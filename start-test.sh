@@ -11,6 +11,10 @@ cd /home/yusuke/engineers-hub.ltd/in-house-project/slack-claude-code-integration
 # Set test mode environment variable
 export TEST_MODE=false
 
+# Build the TypeScript code
+echo "Building TypeScript code..."
+npm run build
+
 # Start the application
 echo "Starting Slack Bot with MCP Server..."
-cd slack-bot && node index.js
+node dist/slack-bot/index.js

@@ -26,6 +26,7 @@ Slack → Slack Bot → Claude Code MCP Server → Claude Code CLI
 
 - Node.js 22以上（推奨）またはNode.js 20以上
 - npm または yarn
+- TypeScript の基本的な知識（開発時）
 - Claude Code CLIがインストール済み（`npm install -g @anthropic-ai/claude-code`）
 - Slack Workspace管理者権限
 - Docker & Docker Compose（オプション）
@@ -166,10 +167,14 @@ claude --version
 # ルートディレクトリで実行
 npm run setup
 
+# TypeScriptをビルド
+npm run build
+
 # または個別にインストール
 npm install  # ルートディレクトリ
 cd claude-code-mcp && npm install && cd ..
 cd slack-bot && npm install && cd ..
+npm run build  # TypeScriptをビルド
 ```
 
 ### Step 4: アプリケーションの起動
@@ -177,31 +182,36 @@ cd slack-bot && npm install && cd ..
 #### 4-1. ローカル実行（開発環境）
 
 ```bash
-# 開発モードで起動（ホットリロード付き）
+# 開発モードで起動（TypeScript自動ビルド + ホットリロード付き）
 npm run dev
 
 # または個別に起動
-# ターミナル1
-cd claude-code-mcp && npm start
+# ターミナル1: TypeScriptウォッチモード
+npm run build:watch
 
-# ターミナル2
-cd slack-bot && npm start
+# ターミナル2: MCPサーバー
+npm run start:mcp
+
+# ターミナル3: Slack Bot
+npm run start:bot
 ```
 
 **正常起動時の出力例:**
 
 ```
 > slack-claude-code-integration@1.0.0 dev
-> concurrently "npm run start:mcp" "npm run start:bot"
+> npm run build && concurrently "npm run build:watch" "npm run start:mcp" "npm run start:bot"
 
-[0] Claude Code MCP Server started on stdio
-[0] Claude path: claude
-[0] Project path: /home/yusuke/your-project
-[1] Connecting to Claude Code MCP Server...
-[1] Connected to Claude Code MCP Server
-[1] Available tools: [ { name: 'claude_code', ... } ]
-[1] ⚡️ Slack Claude Code Bot is running!
-[1] Project path: /home/yusuke/your-project
+[0] TypeScript compilation complete
+[1] Watching for file changes...
+[2] [MCP] Claude Code MCP Server started
+[2] [MCP] Claude path: claude
+[2] [MCP] Project path: /home/yusuke/your-project
+[3] Connecting to Claude Code MCP Server...
+[3] Connected to Claude Code MCP Server
+[3] Available tools: [ { name: 'claude_code', ... } ]
+[3] ⚡️ Slack Claude Code Bot is running!
+[3] Project path: /home/yusuke/your-project
 ```
 
 #### 4-2. Docker実行（本番環境推奨）
@@ -414,7 +424,8 @@ User=your-user
 WorkingDirectory=/path/to/slack-claude-code-integration
 Environment="NODE_ENV=production"
 Environment="TEST_MODE=false"
-ExecStart=/usr/bin/npm run start:bot
+ExecStartPre=/usr/bin/npm run build
+ExecStart=/usr/bin/node dist/slack-bot/index.js
 Restart=always
 RestartSec=10
 
@@ -430,8 +441,11 @@ WantedBy=multi-user.target
 # PM2のインストール
 npm install -g pm2
 
+# TypeScriptをビルド
+npm run build
+
 # アプリケーションの起動
-pm2 start slack-bot/index.js --name slack-claude-bot
+pm2 start dist/slack-bot/index.js --name slack-claude-bot
 
 # ログの確認
 pm2 logs slack-claude-bot
@@ -687,17 +701,17 @@ NODE_ENV=team-a npm run dev
 
 #### セキュリティ設定
 
-**アクセス制限の実装例（slack-bot/index.js をカスタマイズ）:**
+**アクセス制限の実装例（slack-bot/index.ts をカスタマイズ）:**
 
-```javascript
+```typescript
 // 特定のユーザーのみ許可
-const ALLOWED_USERS = ['U1234567890', 'U0987654321'];
+const ALLOWED_USERS: string[] = ['U1234567890', 'U0987654321'];
 
 // 特定のチャンネルのみ許可
-const ALLOWED_CHANNELS = ['C1234567890', 'C0987654321'];
+const ALLOWED_CHANNELS: string[] = ['C1234567890', 'C0987654321'];
 
 // 特定のプロジェクトパスのみ許可
-const ALLOWED_PROJECTS = ['/home/user/safe-project-1', '/home/user/safe-project-2'];
+const ALLOWED_PROJECTS: string[] = ['/home/user/safe-project-1', '/home/user/safe-project-2'];
 ```
 
 ## 🏗️ プロジェクト構造
@@ -705,22 +719,28 @@ const ALLOWED_PROJECTS = ['/home/user/safe-project-1', '/home/user/safe-project-
 ```
 slack-claude-code-integration/
 ├── claude-code-mcp/          # Claude Code MCPサーバー
-│   ├── index.js             # MCPサーバー実装
+│   ├── index.ts             # MCPサーバー実装 (TypeScript)
 │   ├── package.json         # 依存関係定義
 │   ├── Dockerfile           # Dockerイメージ定義
 │   └── .env.example         # 環境変数サンプル
 ├── slack-bot/               # Slack Bot
-│   ├── index.js            # Bot実装
+│   ├── index.ts            # Bot実装 (TypeScript)
 │   ├── package.json        # 依存関係定義
 │   ├── Dockerfile          # Dockerイメージ定義
 │   └── .env.example        # 環境変数サンプル
 ├── scripts/                 # ユーティリティスクリプト
-│   └── setup.sh            # セットアップスクリプト
+│   ├── setup.sh            # セットアップスクリプト
+│   └── post-build.sh       # ビルド後処理スクリプト
+├── dist/                    # TypeScriptビルド出力（Git管理外）
 ├── docker/                  # Docker関連ファイル（将来の拡張用）
 ├── docker-compose.yml       # Docker Compose設定
 ├── package.json            # ルートパッケージ定義
+├── tsconfig.json           # TypeScript設定
+├── eslint.config.js        # ESLint設定 (TypeScript対応)
+├── lefthook.yml            # Gitフック設定
 ├── .env.example            # 環境変数サンプル
 ├── .gitignore              # Git除外設定
+├── CLAUDE.md               # Claude Code向けガイダンス
 └── README.md               # このファイル
 ```
 
@@ -762,10 +782,10 @@ git check-ignore .env
 
 **アプリケーションレベルの制限:**
 
-```javascript
-// slack-bot/index.js に追加可能なセキュリティチェック
-const ALLOWED_USERS = process.env.ALLOWED_USERS?.split(',') || [];
-const ALLOWED_CHANNELS = process.env.ALLOWED_CHANNELS?.split(',') || [];
+```typescript
+// slack-bot/index.ts に追加可能なセキュリティチェック
+const ALLOWED_USERS: string[] = process.env.ALLOWED_USERS?.split(',') || [];
+const ALLOWED_CHANNELS: string[] = process.env.ALLOWED_CHANNELS?.split(',') || [];
 
 // イベントハンドラー内で検証
 if (ALLOWED_USERS.length && !ALLOWED_USERS.includes(event.user)) {
@@ -809,10 +829,11 @@ const SAFE_COMMANDS = ['list', 'read', 'analyze', 'test'];
 cd claude-code-mcp
 npm test  # 現在は未実装
 
-# 手動テスト
-node index.js
-# 別ターミナルで
-echo '{"method": "tools/list"}' | nc localhost 3001
+# TypeScriptの型チェック
+npm run build
+
+# 手動テスト（ビルド後）
+node ../dist/claude-code-mcp/index.js
 ```
 
 **Slack Botのテスト:**
@@ -821,8 +842,11 @@ echo '{"method": "tools/list"}' | nc localhost 3001
 cd slack-bot
 npm test  # 現在は未実装
 
-# デバッグモードで起動
-DEBUG=true npm start
+# TypeScriptの型チェック
+npm run build
+
+# デバッグモードで起動（ビルド後）
+DEBUG=true node ../dist/slack-bot/index.js
 ```
 
 ### 統合テスト
@@ -1178,9 +1202,16 @@ services:
 
 **Redis Queueの実装例:**
 
-```javascript
-const Queue = require('bull');
-const claudeQueue = new Queue('claude-commands', 'redis://localhost:6379');
+```typescript
+import Queue from 'bull';
+
+interface ClaudeJob {
+  prompt: string;
+  projectPath: string;
+  userId: string;
+}
+
+const claudeQueue = new Queue<ClaudeJob>('claude-commands', 'redis://localhost:6379');
 
 // ジョブの追加
 claudeQueue.add('execute', {
@@ -1200,9 +1231,13 @@ claudeQueue.process('execute', async (job) => {
 
 **プロジェクト別のワーカー:**
 
-```javascript
+```typescript
 // 特定プロジェクト専用のワーカー
-const projectWorkers = {
+interface ProjectWorkers {
+  [key: string]: ClaudeWorker;
+}
+
+const projectWorkers: ProjectWorkers = {
   'web-app': new ClaudeWorker({ project: '/projects/web-app' }),
   'api-server': new ClaudeWorker({ project: '/projects/api-server' }),
   'mobile-app': new ClaudeWorker({ project: '/projects/mobile-app' })
@@ -1213,10 +1248,16 @@ const projectWorkers = {
 
 ### カスタムコマンドの追加
 
-```javascript
-// custom-commands.js
+```typescript
+// custom-commands.ts
+interface CustomCommandArgs {
+  environment?: string;
+  projectPath: string;
+  prNumber?: number;
+}
+
 const customCommands = {
-  deploy: async (args) => {
+  deploy: async (args: CustomCommandArgs) => {
     // デプロイメントロジック
     return await claudeClient.executeCommand(
       `deploy the application to ${args.environment}`,
@@ -1224,7 +1265,7 @@ const customCommands = {
     );
   },
 
-  review: async (args) => {
+  review: async (args: CustomCommandArgs) => {
     // コードレビューロジック
     return await claudeClient.executeCommand(
       `review the pull request #${args.prNumber}`,
@@ -1335,7 +1376,8 @@ async function postResultToGitHub(prNumber, result) {
    ```
 
 3. **コーディング規約**
-   - ESLint設定に従う
+   - TypeScriptの型定義を必須とする
+   - ESLint設定に従う（TypeScript対応）
    - コミットメッセージは[Conventional Commits](https://www.conventionalcommits.org/)形式
    - テストを追加する
 
@@ -1343,9 +1385,12 @@ async function postResultToGitHub(prNumber, result) {
 
 ```bash
 # 開発用依存関係のインストール
-npm install --save-dev eslint prettier jest
+npm install --save-dev typescript @types/node eslint prettier jest @types/jest
 
-# リンターの実行
+# TypeScriptのビルド
+npm run build
+
+# リンターの実行（TypeScript対応）
 npm run lint
 
 # フォーマッターの実行

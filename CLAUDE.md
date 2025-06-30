@@ -17,14 +17,18 @@ Slack → Slack Bot → Claude Code MCP Server → Claude Code CLI
 # Initial setup (installs all dependencies)
 npm run setup
 
-# Run in development mode with hot reload
+# Build TypeScript code
+npm run build         # One-time build
+npm run build:watch   # Watch mode for development
+
+# Run in development mode (builds and watches)
 npm run dev
 
 # Run tests (currently placeholder)
 npm test
 
 # Code quality
-npm run lint          # Check for lint errors
+npm run lint          # Check TypeScript and JavaScript files
 npm run lint:fix      # Auto-fix lint errors  
 npm run format        # Format all code with Prettier
 npm run format:check  # Check formatting
@@ -49,12 +53,16 @@ npx lefthook install
 ## Architecture
 
 ### Component Structure
-- **claude-code-mcp/**: MCP server that wraps Claude Code CLI
+- **claude-code-mcp/**: MCP server that wraps Claude Code CLI (TypeScript)
+  - Source: `claude-code-mcp/index.ts`
+  - Built to: `dist/claude-code-mcp/index.js`
   - Implements stdio-based MCP protocol
   - Handles `tools/list` and `tools/call` methods
   - Spawns Claude CLI or echo (test mode) as child process
 
-- **slack-bot/**: Slack Bolt application 
+- **slack-bot/**: Slack Bolt application (TypeScript)
+  - Source: `slack-bot/index.ts`
+  - Built to: `dist/slack-bot/index.js`
   - Connects to MCP server as client
   - Handles app mentions, DMs, and slash commands
   - Manages project path switching via `--project` flag
@@ -92,9 +100,18 @@ Users can specify different projects using `--project /path/to/project` in their
 ### Graceful Shutdown
 Both services handle SIGINT for clean disconnection of MCP transport and Slack connections.
 
+## TypeScript Development
+
+The project is written in TypeScript and requires building before running:
+
+1. **Build Process**: Run `npm run build` to compile TypeScript files to JavaScript in the `dist/` directory
+2. **Type Safety**: Strict TypeScript settings are enabled in `tsconfig.json`
+3. **Development Workflow**: Use `npm run dev` which includes automatic rebuilding on file changes
+
 ## Debugging Tips
 
 - Check MCP server logs with `[MCP]` prefix in stderr
 - Slack bot logs connection status and available tools on startup
 - Use `DEBUG=true` environment variable for verbose logging
 - The test mode (`TEST_MODE=true`) is invaluable for troubleshooting without affecting actual projects
+- TypeScript build errors will be shown during `npm run build`
