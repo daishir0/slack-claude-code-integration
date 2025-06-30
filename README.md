@@ -132,6 +132,7 @@ nano .env  # またはお好みのエディタで編集
 ```
 
 **.envファイルの内容:**
+
 ```env
 # Slack App認証情報（Step 1で取得した値を設定）
 SLACK_BOT_TOKEN=xoxb-your-bot-token-here
@@ -188,6 +189,7 @@ cd slack-bot && npm start
 ```
 
 **正常起動時の出力例:**
+
 ```
 > slack-claude-code-integration@1.0.0 dev
 > concurrently "npm run start:mcp" "npm run start:bot"
@@ -253,17 +255,20 @@ Project path: /home/yusuke/engineers-hub.ltd/in-house-project
 #### 5-2. 動作モード
 
 **テストモード（デフォルト）:**
+
 - `TEST_MODE=true` の場合、実際のClaude Codeではなく`echo`コマンドでシミュレーション
 - 安全に動作確認ができる
 - 例: 入力「ファイルをリストして」→ 出力「Claude would execute: "ファイルをリストして" in /path/to/project」
 
 **本番モード:**
+
 - `TEST_MODE=false` に設定すると実際のClaude Codeが実行される
 - 実際のファイル操作やコード変更が可能
 
 #### 5-3. テストモードから本番モードへの切り替え
 
 **方法1: 環境変数で設定（推奨）**
+
 ```bash
 # アプリケーションを停止（Ctrl+C）してから
 # .env ファイルに追加
@@ -278,15 +283,17 @@ nano .env
 ```
 
 **方法2: 起動スクリプトを編集**
+
 ```bash
 # start-test.sh を編集
 export TEST_MODE=false  # true から false に変更
 ```
 
 **方法3: コード内で直接設定**
+
 ```javascript
 // slack-bot/index.js の 263行目付近
-process.env.TEST_MODE = 'false';  // 'true' から 'false' に変更
+process.env.TEST_MODE = 'false'; // 'true' から 'false' に変更
 ```
 
 ### Step 6: Slackでのテストと利用開始
@@ -303,18 +310,22 @@ process.env.TEST_MODE = 'false';  // 'true' から 'false' に変更
 #### 6-2. 初回テスト
 
 **ヘルプメッセージ:**
+
 ```
 @Claude Code Bot help
 ```
 
 **応答例:**
+
 ```
 こんにちは！Claude Codeコマンドを実行できます。
 
 使い方:
 ```
+
 @ClaudeBot <あなたの指示>
 @ClaudeBot <あなたの指示> --project /path/to/project
+
 ```
 
 例:
@@ -326,11 +337,13 @@ process.env.TEST_MODE = 'false';  // 'true' から 'false' に変更
 #### 6-3. テストモードでの動作確認
 
 **ファイルリスト取得（テストモード）:**
+
 ```
 @Claude Code Assistant ファイルをリストして
 ```
 
 **応答（テストモード）:**
+
 ```
 Claude would execute: "ファイルをリストして" in /home/yusuke/engineers-hub.ltd/in-house-project
 ```
@@ -340,26 +353,31 @@ Claude would execute: "ファイルをリストして" in /home/yusuke/engineers
 #### 6-4. 本番モードでの実際の使用例
 
 **プロジェクト構造の確認:**
+
 ```
 @Claude Code Bot このプロジェクトの構造を教えて
 ```
 
 **ファイルの確認:**
+
 ```
 @Claude Code Bot package.jsonの内容を確認して
 ```
 
 **コードの修正:**
+
 ```
 @Claude Code Bot src/index.js のエラーを修正して
 ```
 
 **テストの実行:**
+
 ```
 @Claude Code Bot テストを実行して結果を教えて
 ```
 
 **別プロジェクトでの実行:**
+
 ```
 @Claude Code Bot ビルドを実行して --project /home/user/another-project
 ```
@@ -369,6 +387,7 @@ Claude would execute: "ファイルをリストして" in /home/yusuke/engineers
 #### 7-1. アプリケーションの起動
 
 **開発環境での起動:**
+
 ```bash
 # シンプルな起動
 cd /path/to/slack-claude-code-integration
@@ -382,6 +401,7 @@ nohup npm run dev > app.log 2>&1 &
 ```
 
 **本番環境での起動（systemdサービス例）:**
+
 ```ini
 # /etc/systemd/system/slack-claude-bot.service
 [Unit]
@@ -405,6 +425,7 @@ WantedBy=multi-user.target
 #### 7-2. プロセス管理
 
 **PM2を使用した管理（推奨）:**
+
 ```bash
 # PM2のインストール
 npm install -g pm2
@@ -429,6 +450,7 @@ pm2 save
 #### 7-3. ログ管理
 
 **ログファイルの確認:**
+
 ```bash
 # PM2使用時
 pm2 logs slack-claude-bot --lines 100
@@ -444,6 +466,7 @@ grep "\[MCP\]" app.log
 ```
 
 **ログローテーション設定:**
+
 ```bash
 # /etc/logrotate.d/slack-claude-bot
 /path/to/logs/*.log {
@@ -473,6 +496,7 @@ grep "\[MCP\]" app.log
 ```
 
 **メリット:**
+
 - チーム全員が作業内容を確認できる
 - 履歴が残り、知識共有になる
 - スレッドで議論を続けられる
@@ -489,6 +513,7 @@ README.mdを更新して
 ```
 
 **メリット:**
+
 - 試行錯誤を他の人に見せずに作業
 - 個人的な学習や実験に最適
 - チャンネルを汚さない
@@ -505,6 +530,7 @@ README.mdを更新して
 ```
 
 **メリット:**
+
 - 最も素早く実行できる
 - どのチャンネルからでも使える
 - 実行結果は自分だけに表示（他の人には見えない）
@@ -514,6 +540,7 @@ README.mdを更新して
 #### デフォルトプロジェクト
 
 `.env`で設定した`PROJECT_PATH`がデフォルトで使用されます:
+
 ```
 @Claude Code Bot パッケージをアップデートして
 ```
@@ -521,6 +548,7 @@ README.mdを更新して
 #### 別プロジェクトの指定
 
 `--project`オプションで他のプロジェクトを操作:
+
 ```
 @Claude Code Bot ビルドエラーを修正して --project /home/user/web-app
 @Claude Code Bot テストを実行 --project /home/user/api-server
@@ -532,12 +560,14 @@ README.mdを更新して
 #### 開発ワークフロー
 
 **1. 朝のプロジェクト状態確認:**
+
 ```
 @Claude Code Bot 昨日からの変更点をまとめて
 @Claude Code Bot CIの状態を確認して
 ```
 
 **2. 機能開発:**
+
 ```
 @Claude Code Bot feature/user-authブランチを作成して
 @Claude Code Bot ユーザー認証のAPIエンドポイントを実装して
@@ -545,6 +575,7 @@ README.mdを更新して
 ```
 
 **3. バグ修正:**
+
 ```
 @Claude Code Bot production.logの最新のエラーを分析して
 @Claude Code Bot エラーの原因を特定して修正案を提示して
@@ -552,6 +583,7 @@ README.mdを更新して
 ```
 
 **4. コードレビュー:**
+
 ```
 @Claude Code Bot 最新のコミットをレビューして
 @Claude Code Bot セキュリティの観点でコードをチェックして
@@ -559,6 +591,7 @@ README.mdを更新して
 ```
 
 **5. ドキュメント作成:**
+
 ```
 @Claude Code Bot APIドキュメントを生成して
 @Claude Code Bot 新機能の使い方をREADMEに追加して
@@ -568,6 +601,7 @@ README.mdを更新して
 #### チーム協働シナリオ
 
 **シナリオ1: バグ報告と修正**
+
 ```
 開発者A: @Claude Code Bot ユーザー登録でエラーが発生している。原因を調査して
 Claude: [エラーログと原因を分析]
@@ -576,6 +610,7 @@ Claude: [修正を実装し、PR作成]
 ```
 
 **シナリオ2: 新機能の実装**
+
 ```
 PM: @Claude Code Bot 検索機能の要件を整理して実装計画を立てて
 Claude: [要件整理と実装計画を提示]
@@ -589,26 +624,27 @@ Claude: [実装を進める]
 
 #### 必須の環境変数
 
-| 変数名 | 説明 | 取得場所 | 例 |
-|--------|------|----------|-----|
-| SLACK_BOT_TOKEN | Bot User OAuth Token | Slack App → Install App | `xoxb-1234567890123-...` |
-| SLACK_SIGNING_SECRET | アプリの署名シークレット | Slack App → Basic Information | `abc123def456...` |
-| SLACK_APP_TOKEN | App-Level Token (Socket Mode用) | Slack App → Basic Information → App-Level Tokens | `xapp-1-A01234567890-...` |
-| PROJECT_PATH | デフォルトプロジェクトパス | ローカルのプロジェクトパス | `/home/user/my-project` |
+| 変数名               | 説明                            | 取得場所                                         | 例                        |
+| -------------------- | ------------------------------- | ------------------------------------------------ | ------------------------- |
+| SLACK_BOT_TOKEN      | Bot User OAuth Token            | Slack App → Install App                          | `xoxb-1234567890123-...`  |
+| SLACK_SIGNING_SECRET | アプリの署名シークレット        | Slack App → Basic Information                    | `abc123def456...`         |
+| SLACK_APP_TOKEN      | App-Level Token (Socket Mode用) | Slack App → Basic Information → App-Level Tokens | `xapp-1-A01234567890-...` |
+| PROJECT_PATH         | デフォルトプロジェクトパス      | ローカルのプロジェクトパス                       | `/home/user/my-project`   |
 
 #### オプションの環境変数
 
-| 変数名 | 説明 | デフォルト値 | 例 |
-|--------|------|-------------|-----|
-| CLAUDE_PATH | Claude CLIの実行パス | `claude` | `/usr/local/bin/claude` |
-| DEBUG | デバッグログの出力 | `false` | `true` |
-| MCP_PORT | MCPサーバーのポート（将来の拡張用） | `3001` | `3002` |
+| 変数名      | 説明                                | デフォルト値 | 例                      |
+| ----------- | ----------------------------------- | ------------ | ----------------------- |
+| CLAUDE_PATH | Claude CLIの実行パス                | `claude`     | `/usr/local/bin/claude` |
+| DEBUG       | デバッグログの出力                  | `false`      | `true`                  |
+| MCP_PORT    | MCPサーバーのポート（将来の拡張用） | `3001`       | `3002`                  |
 
 ### 高度な設定
 
 #### 複数プロジェクトの管理
 
 **方法1: 環境変数で複数プロジェクトを定義**
+
 ```env
 # .env
 PROJECT_PATH=/home/user/main-project
@@ -618,6 +654,7 @@ PROJECT_MOBILE=/home/user/mobile-app
 ```
 
 **方法2: プロジェクト設定ファイル（開発中の機能）**
+
 ```json
 // projects.json
 {
@@ -651,6 +688,7 @@ NODE_ENV=team-a npm run dev
 #### セキュリティ設定
 
 **アクセス制限の実装例（slack-bot/index.js をカスタマイズ）:**
+
 ```javascript
 // 特定のユーザーのみ許可
 const ALLOWED_USERS = ['U1234567890', 'U0987654321'];
@@ -659,10 +697,7 @@ const ALLOWED_USERS = ['U1234567890', 'U0987654321'];
 const ALLOWED_CHANNELS = ['C1234567890', 'C0987654321'];
 
 // 特定のプロジェクトパスのみ許可
-const ALLOWED_PROJECTS = [
-  '/home/user/safe-project-1',
-  '/home/user/safe-project-2'
-];
+const ALLOWED_PROJECTS = ['/home/user/safe-project-1', '/home/user/safe-project-2'];
 ```
 
 ## 🏗️ プロジェクト構造
@@ -700,11 +735,13 @@ slack-claude-code-integration/
 ### 1. 認証情報の管理
 
 **必須事項:**
+
 - `.env`ファイルは**絶対に**Gitにコミットしない（`.gitignore`に含まれています）
 - 本番環境では環境変数を使用（Docker Secrets、AWS Secrets Manager等）
 - トークンは定期的にローテーション
 
 **ベストプラクティス:**
+
 ```bash
 # 開発環境
 cp .env.example .env.development
@@ -718,11 +755,13 @@ git check-ignore .env
 ### 2. アクセス制限
 
 **Slackレベルの制限:**
+
 - Botを特定のチャンネルのみに招待
 - プライベートチャンネルでの利用を推奨
 - 必要に応じてユーザーリストでフィルタリング
 
 **アプリケーションレベルの制限:**
+
 ```javascript
 // slack-bot/index.js に追加可能なセキュリティチェック
 const ALLOWED_USERS = process.env.ALLOWED_USERS?.split(',') || [];
@@ -737,6 +776,7 @@ if (ALLOWED_USERS.length && !ALLOWED_USERS.includes(event.user)) {
 ### 3. プロジェクトアクセス制限
 
 **ディレクトリトラバーサル対策:**
+
 ```javascript
 // 安全なパス検証
 const path = require('path');
@@ -747,6 +787,7 @@ if (!safePath.startsWith('/allowed/base/path')) {
 ```
 
 **読み取り専用モード（実装例）:**
+
 ```javascript
 // 特定のコマンドのみ許可
 const SAFE_COMMANDS = ['list', 'read', 'analyze', 'test'];
@@ -763,6 +804,7 @@ const SAFE_COMMANDS = ['list', 'read', 'analyze', 'test'];
 ### ユニットテスト
 
 **MCPサーバーのテスト:**
+
 ```bash
 cd claude-code-mcp
 npm test  # 現在は未実装
@@ -774,6 +816,7 @@ echo '{"method": "tools/list"}' | nc localhost 3001
 ```
 
 **Slack Botのテスト:**
+
 ```bash
 cd slack-bot
 npm test  # 現在は未実装
@@ -785,6 +828,7 @@ DEBUG=true npm start
 ### 統合テスト
 
 **ローカル環境での統合テスト:**
+
 ```bash
 # 1. MCPサーバーを起動
 cd claude-code-mcp && npm start
@@ -798,6 +842,7 @@ cd slack-bot && npm start
 ### デバッグ方法
 
 **ログレベルの設定:**
+
 ```env
 # .env
 DEBUG=true
@@ -805,6 +850,7 @@ LOG_LEVEL=debug  # error, warn, info, debug
 ```
 
 **一般的なデバッグコマンド:**
+
 ```bash
 # プロセスの確認
 ps aux | grep node
@@ -821,6 +867,7 @@ tail -f npm-debug.log
 ### 起動時の問題
 
 #### "Claude command not found"
+
 ```bash
 # Claude CLIの場所を確認
 which claude
@@ -834,6 +881,7 @@ echo "CLAUDE_PATH=/usr/local/bin/claude" >> .env
 ```
 
 #### "Cannot connect to MCP Server"
+
 ```bash
 # MCPサーバーが起動しているか確認
 ps aux | grep "claude-code-mcp"
@@ -847,11 +895,13 @@ sudo iptables -L | grep 3001
 ```
 
 #### "AppInitializationError: You must provide an appToken"
+
 ```
 エラー: AppInitializationError: You must provide an appToken when socketMode is set to true
 ```
 
 **解決方法:**
+
 1. `.env`ファイルが正しい場所にあるか確認
 2. 環境変数が正しく設定されているか確認:
    ```bash
@@ -860,11 +910,13 @@ sudo iptables -L | grep 3001
 3. トークンの前後に空白がないか確認
 
 #### "MCP error -32000: Connection closed"
+
 ```
 エラー: McpError: MCP error -32000: Connection closed
 ```
 
 **解決方法:**
+
 1. Node.jsのバージョンを確認（22以上推奨）:
    ```bash
    node --version
@@ -878,9 +930,9 @@ sudo iptables -L | grep 3001
 ### Slack接続の問題
 
 #### "Socket Mode connection failed"
+
 1. **Socket Modeの確認:**
    - Slack App管理画面 → Socket Mode → Enable Socket Mode がON
-   
 2. **App Tokenの確認:**
    - スコープに`connections:write`が含まれているか
    - トークンが正しくコピーされているか（前後の空白に注意）
@@ -892,7 +944,9 @@ sudo iptables -L | grep 3001
    ```
 
 #### "Bot is not responding"
+
 1. **Botの招待確認:**
+
    ```
    /invite @Claude Code Bot
    ```
@@ -908,6 +962,7 @@ sudo iptables -L | grep 3001
 ### 実行時の問題
 
 #### "No response from Claude Code"
+
 ```bash
 # Claude CLIが動作するか直接確認
 claude --version
@@ -921,6 +976,7 @@ env | grep -E "(CLAUDE|PROJECT)"
 ```
 
 #### "Permission denied"
+
 ```bash
 # プロジェクトディレクトリの権限確認
 ls -la /path/to/project
@@ -934,13 +990,16 @@ docker exec -it slack-claude-bot ls -la /workspace
 **問題:** 実際のClaude Codeが実行されない
 
 **確認事項:**
+
 1. テストモードが有効になっているか確認:
+
    ```bash
    # ログを確認
    grep "TEST MODE" app.log
    ```
 
 2. テストモードの出力例:
+
    ```
    入力: "ファイルをリストして"
    出力: "Claude would execute: \"ファイルをリストして\" in /path/to/project"
@@ -951,11 +1010,13 @@ docker exec -it slack-claude-bot ls -la /workspace
 ### パフォーマンスの問題
 
 #### 応答が遅い
+
 1. **リソースの確認:**
+
    ```bash
    # CPU/メモリ使用率
    top -p $(pgrep -f claude)
-   
+
    # ディスク容量
    df -h
    ```
@@ -969,6 +1030,7 @@ docker exec -it slack-claude-bot ls -la /workspace
 ### ログの確認方法
 
 **アプリケーションログ:**
+
 ```bash
 # Slack Botのログ
 journalctl -u slack-claude-bot -f
@@ -979,6 +1041,7 @@ docker-compose logs -f claude-code-mcp
 ```
 
 **デバッグ用の詳細ログ:**
+
 ```bash
 # DEBUG環境変数を有効化
 DEBUG=true npm run dev
@@ -988,9 +1051,11 @@ cd claude-code-mcp && DEBUG=true node index.js
 ```
 
 **Slackのイベントログ:**
+
 - Slack App管理画面 → Event Subscriptions → Recent Events
 
 **Claude Codeのログ:**
+
 ```bash
 # Claude CLIのログ位置を確認
 claude --help | grep -i log
@@ -999,6 +1064,7 @@ claude --help | grep -i log
 ### よくある設定ミス
 
 #### 環境変数の設定ミス
+
 ```bash
 # よくある間違い
 SLACK_BOT_TOKEN="xoxb-..."  # ダブルクォート不要
@@ -1009,6 +1075,7 @@ SLACK_BOT_TOKEN=xoxb-...
 ```
 
 #### パスの設定ミス
+
 ```bash
 # よくある間違い
 PROJECT_PATH=~/my-project     # チルダは展開されない
@@ -1023,6 +1090,7 @@ PROJECT_PATH=/home/user/my-project  # 絶対パス
 ### ヘルスチェック
 
 **簡易ヘルスチェックスクリプト:**
+
 ```bash
 #!/bin/bash
 # scripts/health-check.sh
@@ -1072,6 +1140,7 @@ const responseTime = new prometheus.Histogram({
 ### ログ管理
 
 **構造化ログの実装例:**
+
 ```javascript
 const winston = require('winston');
 
@@ -1092,6 +1161,7 @@ const logger = winston.createLogger({
 ### 水平スケーリング
 
 **複数インスタンスの実行:**
+
 ```yaml
 # docker-compose.scale.yml
 version: '3.8'
@@ -1107,6 +1177,7 @@ services:
 ### キューイングシステムの追加
 
 **Redis Queueの実装例:**
+
 ```javascript
 const Queue = require('bull');
 const claudeQueue = new Queue('claude-commands', 'redis://localhost:6379');
@@ -1128,6 +1199,7 @@ claudeQueue.process('execute', async (job) => {
 ### 負荷分散
 
 **プロジェクト別のワーカー:**
+
 ```javascript
 // 特定プロジェクト専用のワーカー
 const projectWorkers = {
@@ -1144,15 +1216,15 @@ const projectWorkers = {
 ```javascript
 // custom-commands.js
 const customCommands = {
-  'deploy': async (args) => {
+  deploy: async (args) => {
     // デプロイメントロジック
     return await claudeClient.executeCommand(
       `deploy the application to ${args.environment}`,
       args.projectPath
     );
   },
-  
-  'review': async (args) => {
+
+  review: async (args) => {
     // コードレビューロジック
     return await claudeClient.executeCommand(
       `review the pull request #${args.prNumber}`,
@@ -1165,6 +1237,7 @@ const customCommands = {
 ### Slack UI の拡張
 
 **インタラクティブメッセージ:**
+
 ```javascript
 // ボタン付きメッセージ
 await client.chat.postMessage({
@@ -1199,6 +1272,7 @@ await client.chat.postMessage({
 ### 外部サービス連携
 
 **GitHub連携の例:**
+
 ```javascript
 const { Octokit } = require('@octokit/rest');
 const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
@@ -1217,16 +1291,19 @@ async function postResultToGitHub(prNumber, result) {
 ## 📚 詳細ドキュメントとリソース
 
 ### 公式ドキュメント
+
 - [MCP (Model Context Protocol)仕様](https://modelcontextprotocol.com)
 - [Slack Bolt Framework](https://slack.dev/bolt-js)
 - [Claude Code CLI](https://claude.ai/code)
 - [Slack API Documentation](https://api.slack.com/docs)
 
 ### 関連プロジェクト
+
 - [steipete/claude-code-mcp](https://github.com/steipete/claude-code-mcp) - Claude Code MCP実装の参考
 - [modelcontextprotocol/typescript-sdk](https://github.com/modelcontextprotocol/typescript-sdk) - MCP TypeScript SDK
 
 ### コミュニティリソース
+
 - [Claude Discord Community](https://discord.gg/claude)
 - [Slack Developer Community](https://community.slack.com)
 - [MCP Implementations Gallery](https://modelcontextprotocol.com/gallery)
@@ -1241,17 +1318,18 @@ async function postResultToGitHub(prNumber, result) {
    - 質問
 
 2. **プルリクエスト**
+
    ```bash
    # フォークしてクローン
    git clone https://github.com/your-username/slack-claude-code-integration.git
-   
+
    # フィーチャーブランチを作成
    git checkout -b feature/amazing-feature
-   
+
    # 変更をコミット
    git add .
    git commit -m 'feat: Add amazing feature'
-   
+
    # プッシュ
    git push origin feature/amazing-feature
    ```
@@ -1280,18 +1358,21 @@ npm test
 ## 🗺️ ロードマップ
 
 ### v1.1.0（計画中）
+
 - [ ] Web UIダッシュボード
 - [ ] 複数ワークスペース対応
 - [ ] カスタムコマンドプラグインシステム
 - [ ] 実行履歴の永続化
 
 ### v1.2.0（構想中）
+
 - [ ] AIペアプログラミングモード
 - [ ] 自動コードレビュー機能
 - [ ] CI/CD統合
 - [ ] メトリクスダッシュボード
 
 ### v2.0.0（将来）
+
 - [ ] マルチモーダル対応（画像・動画）
 - [ ] 音声コマンド対応
 - [ ] エンタープライズ機能
@@ -1335,6 +1416,7 @@ SOFTWARE.
 - [Docker](https://www.docker.com) - コンテナ化プラットフォーム
 
 特別な感謝：
+
 - Claude Codeチーム（Anthropic）
 - MCPコミュニティ
 - 全てのコントリビューターとテスター
@@ -1343,8 +1425,9 @@ SOFTWARE.
 
 **🚀 Engineers Hub Ltd** - Building the future of AI-powered development
 
-*最終更新: 2025年6月*
+_最終更新: 2025年6月_
 
 **お問い合わせ:**
+
 - 🐛 Issues: [GitHub Issues](https://github.com/engineers-hub/slack-claude-code-integration/issues)
 - 💬 Discussions: [GitHub Discussions](https://github.com/engineers-hub/slack-claude-code-integration/discussions)

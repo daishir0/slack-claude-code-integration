@@ -1,0 +1,27 @@
+# Lefthook configuration
+# https://github.com/evilmartians/lefthook
+
+pre-commit:
+  parallel: true
+  commands:
+    prettier:
+      glob: '*.{js,json,md,yml,yaml}'
+      run: npx prettier --check {staged_files}
+    eslint:
+      glob: '*.js'
+      run: npx eslint {staged_files}
+
+pre-push:
+  parallel: true
+  commands:
+    test:
+      run: npm test
+# Auto-fix on commit (optional, can be enabled by running: lefthook add -d)
+# pre-commit:
+#   commands:
+#     prettier-fix:
+#       glob: "*.{js,json,md,yml,yaml}"
+#       run: npx prettier --write {staged_files} && git add {staged_files}
+#     eslint-fix:
+#       glob: "*.js"
+#       run: npx eslint --fix {staged_files} && git add {staged_files}

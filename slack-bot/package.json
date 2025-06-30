@@ -7,7 +7,12 @@
     "start": "node index.js",
     "dev": "nodemon index.js"
   },
-  "keywords": ["slack", "bot", "claude", "mcp"],
+  "keywords": [
+    "slack",
+    "bot",
+    "claude",
+    "mcp"
+  ],
   "author": "Engineers Hub Ltd",
   "license": "MIT",
   "dependencies": {

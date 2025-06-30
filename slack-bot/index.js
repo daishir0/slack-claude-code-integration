@@ -1,7 +1,7 @@
 const { App } = require('@slack/bolt');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
-const { spawn } = require('child_process');
+// const { spawn } = require('child_process');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -25,7 +25,7 @@ class ClaudeCodeClient {
   async connect() {
     try {
       console.log('Connecting to Claude Code MCP Server...');
-      
+
       // Create transport
       this.transport = new StdioClientTransport({
         command: 'node',
@@ -39,22 +39,24 @@ class ClaudeCodeClient {
       });
 
       // Create client
-      this.client = new Client({
-        name: 'slack-claude-code-client',
-        version: '1.0.0'
-      }, {
-        capabilities: {}
-      });
+      this.client = new Client(
+        {
+          name: 'slack-claude-code-client',
+          version: '1.0.0'
+        },
+        {
+          capabilities: {}
+        }
+      );
 
       // Connect
       await this.client.connect(this.transport);
       this.isConnected = true;
       console.log('Connected to Claude Code MCP Server');
-      
+
       // List available tools
       const toolsResponse = await this.client.listTools();
       console.log('Available tools:', JSON.stringify(toolsResponse.tools, null, 2));
-      
     } catch (error) {
       console.error('Failed to connect to MCP Server:', error);
       throw error;
@@ -69,10 +71,10 @@ class ClaudeCodeClient {
     try {
       console.log(`Executing command: ${prompt}`);
       const result = await this.client.callTool('claude_code', {
-        prompt: prompt,
+        prompt,
         cwd: cwd || process.env.PROJECT_PATH
       });
-      
+
       return result.content?.[0]?.text || 'No response from Claude Code';
     } catch (error) {
       console.error('Error executing Claude Code command:', error);
@@ -104,7 +106,7 @@ function formatCodeBlock(text) {
   if (text.includes('```')) {
     return text;
   }
-  
+
   // Otherwise, wrap in a code block
   return `\`\`\`\n${text}\n\`\`\``;
 }
@@ -112,11 +114,11 @@ function formatCodeBlock(text) {
 // Handle app mentions
 app.event('app_mention', async ({ event, client, say }) => {
   console.log('Received app_mention event:', JSON.stringify(event, null, 2));
-  
+
   try {
     // Extract the command from the mention
     const text = event.text.replace(/<@[A-Z0-9]+>/g, '').trim();
-    
+
     if (!text || text.toLowerCase() === 'help') {
       await say({
         text: `こんにちは！Claude Codeコマンドを実行できます。
@@ -158,10 +160,9 @@ app.event('app_mention', async ({ event, client, say }) => {
       text: formatCodeBlock(result),
       thread_ts: event.ts
     });
-
   } catch (error) {
     console.error('Error handling app mention:', error);
-    
+
     await say({
       text: `❌ エラーが発生しました: ${error.message}`,
       thread_ts: event.ts
@@ -172,11 +173,13 @@ app.event('app_mention', async ({ event, client, say }) => {
 // Handle direct messages
 app.message(async ({ message, say }) => {
   // Only respond to DMs
-  if (message.channel_type !== 'im') return;
-  
+  if (message.channel_type !== 'im') {
+    return;
+  }
+
   try {
     const text = message.text;
-    
+
     if (!text || text.toLowerCase() === 'help') {
       await say({
         text: `*Claude Code Bot の使い方*
@@ -206,7 +209,6 @@ app.message(async ({ message, say }) => {
 
     // Send the result
     await say(formatCodeBlock(result));
-
   } catch (error) {
     console.error('Error handling direct message:', error);
     await say(`❌ エラーが発生しました: ${error.message}`);
@@ -219,7 +221,7 @@ app.command('/claude', async ({ command, ack, respond }) => {
 
   try {
     const { text } = command;
-    
+
     if (!text || text === 'help') {
       await respond({
         text: `*Claude Code Slash Command*
@@ -244,7 +246,6 @@ app.command('/claude', async ({ command, ack, respond }) => {
     await respond({
       text: formatCodeBlock(result)
     });
-
   } catch (error) {
     console.error('Error handling slash command:', error);
     await respond({
@@ -264,10 +265,10 @@ app.error(async (error) => {
   try {
     // Check if running in test mode from environment
     const testMode = process.env.TEST_MODE === 'true';
-    
+
     // Connect to Claude Code MCP Server
     await claudeClient.connect();
-    
+
     // Start Slack app
     await app.start();
     console.log('⚡️ Slack Claude Code Bot is running!');
@@ -277,7 +278,6 @@ app.error(async (error) => {
     } else {
       console.log('🚀 Running in PRODUCTION MODE - using Claude Code CLI');
     }
-    
   } catch (error) {
     console.error('Failed to start app:', error);
     process.exit(1);
