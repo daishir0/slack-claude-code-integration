@@ -135,21 +135,25 @@ export class TmuxConnector {
   isCommandComplete(output: string): boolean {
     if (!output) return false;
 
+    // 最後の10行のみをチェック（Claude Codeのステータスバーは画面の最下部にあるため）
+    const lines = output.split('\n');
+    const lastLines = lines.slice(-10).join('\n');
+
     // 処理中インジケータをチェック
     const processingIndicators = [
       /esc to interrupt/i,   // Claude Code処理中（最重要）
     ];
 
-    // 全体をチェック
+    // 最後の10行のみをチェック
     for (const pattern of processingIndicators) {
-      if (pattern.test(output)) {
-        console.log('[TmuxConnector] Still processing: found processing indicator');
+      if (pattern.test(lastLines)) {
+        console.log('[TmuxConnector] Still processing: found processing indicator in last 10 lines');
         return false;
       }
     }
 
     // 処理中インジケータがなければ完了
-    console.log('[TmuxConnector] Command completed: no processing indicators found');
+    console.log('[TmuxConnector] Command completed: no processing indicators found in last 10 lines');
     return true;
   }
 

@@ -237,20 +237,27 @@ export class AsyncExecutor {
 
           // 出力を分割
           const chunks = this.splitOutput(newOutput || 'コマンドが実行されましたが、出力がありません');
+          console.log(`[AsyncExecutor] Split into ${chunks.length} chunks`);
+          chunks.forEach((chunk, index) => {
+            console.log(`[AsyncExecutor] Chunk ${index + 1} length: ${chunk.length}`);
+          });
 
-          // 最初のメッセージを更新
+          // 最初のメッセージを短く更新（chat.updateは約2,000文字制限）
           await slackClient.chat.update({
             channel: channelId,
             ts: messageTs,
-            text: `✅ 完了 (${this.formatDuration(duration)}) ${chunks.length > 1 ? `[1/${chunks.length}]` : ''}\n\n\`\`\`\n${chunks[0]}\n\`\`\``
+            text: `✅ 完了 (${this.formatDuration(duration)})`
           });
 
-          // 2番目以降のメッセージを投稿
-          for (let i = 1; i < chunks.length; i++) {
+          // すべての出力をchat.postMessageで投稿（40,000文字制限）
+          for (let i = 0; i < chunks.length; i++) {
+            const outputMessage = `${chunks.length > 1 ? `[${i + 1}/${chunks.length}]\n\n` : ''}\`\`\`\n${chunks[i]}\n\`\`\``;
+            console.log(`[AsyncExecutor] Output message ${i + 1} length: ${outputMessage.length}`);
+
             await slackClient.chat.postMessage({
               channel: channelId,
               thread_ts: threadTs,
-              text: `✅ 完了 (${this.formatDuration(duration)}) [${i + 1}/${chunks.length}]\n\n\`\`\`\n${chunks[i]}\n\`\`\``
+              text: outputMessage
             });
           }
 
