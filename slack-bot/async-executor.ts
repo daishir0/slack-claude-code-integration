@@ -183,8 +183,11 @@ export class AsyncExecutor {
           console.log('[AsyncExecutor] === DEBUG: 完了判定 ===');
           console.log('[AsyncExecutor] 最終出力の行数:', finalOutput.split('\n').length);
 
-          // コマンドプロンプト（`>` で始まる行）を探して、2番目に最後のプロンプトから最後のプロンプトの手前までを取得
-          const lines = finalOutput.split('\n');
+          // ANSIエスケープシーケンスを除去
+          let cleanOutput = this.removeAnsiEscapeCodes(finalOutput);
+
+          // コマンドプロンプト（`>` で始まる行）を探して、最後から2番目のプロンプトの次の行から最後のプロンプトの前の行までを取得
+          const lines = cleanOutput.split('\n');
           const promptIndices: number[] = [];
 
           for (let i = 0; i < lines.length; i++) {
@@ -196,19 +199,20 @@ export class AsyncExecutor {
 
           console.log('[AsyncExecutor] Total prompts found:', promptIndices.length);
 
-          let newOutput = finalOutput;
+          let newOutput = cleanOutput;
 
-          // 2番目に最後のプロンプトから最後のプロンプトの手前までを取得
+          // 2番目に最後のプロンプトの次の行から、最後のプロンプトの前の行までを取得
           if (promptIndices.length >= 2) {
             const secondLastPromptIndex = promptIndices[promptIndices.length - 2];
             const lastPromptIndex = promptIndices[promptIndices.length - 1];
-            console.log(`[AsyncExecutor] Extracting lines ${secondLastPromptIndex} to ${lastPromptIndex}`);
-            newOutput = lines.slice(secondLastPromptIndex, lastPromptIndex).join('\n').trim();
+            console.log(`[AsyncExecutor] Extracting lines ${secondLastPromptIndex + 1} to ${lastPromptIndex - 1}`);
+            // プロンプトの次の行から、次のプロンプトの前の行まで（プロンプト自体は含まない）
+            newOutput = lines.slice(secondLastPromptIndex + 1, lastPromptIndex).join('\n').trim();
           } else if (promptIndices.length === 1) {
-            // プロンプトが1つしかない場合、その後ろから最後まで
+            // プロンプトが1つしかない場合、その次の行から最後まで
             const promptIndex = promptIndices[0];
-            console.log(`[AsyncExecutor] Single prompt found, extracting from line ${promptIndex}`);
-            newOutput = lines.slice(promptIndex).join('\n').trim();
+            console.log(`[AsyncExecutor] Single prompt found, extracting from line ${promptIndex + 1}`);
+            newOutput = lines.slice(promptIndex + 1).join('\n').trim();
           }
 
           console.log('[AsyncExecutor] Extracted output length:', newOutput.length);
@@ -299,6 +303,15 @@ export class AsyncExecutor {
   cancelExecution(channelId: string, threadTs: string): void {
     const executionKey = `${channelId}-${threadTs}`;
     this.activeExecutions.delete(executionKey);
+  }
+
+  /**
+   * ANSIエスケープシーケンスを除去
+   */
+  private removeAnsiEscapeCodes(text: string): string {
+    // ANSIエスケープシーケンスを除去する正規表現
+    // eslint-disable-next-line no-control-regex
+    return text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1B\[[\?0-9;]*[a-zA-Z]/g, '');
   }
 
   /**

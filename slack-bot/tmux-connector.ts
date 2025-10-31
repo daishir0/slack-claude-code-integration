@@ -84,12 +84,44 @@ export class TmuxConnector {
   /**
    * tmuxセッションの出力を取得
    * @param sessionName セッション名
-   * @param lines 取得する行数（デフォルト: 100行）
+   * @param lines 取得する行数（デフォルト: 200行）
    */
-  async captureOutput(sessionName: string, lines: number = 100): Promise<string> {
+  async captureOutput(sessionName: string, lines: number = 200): Promise<string> {
     try {
-      const { stdout } = await execAsync(`tmux capture-pane -t ${sessionName} -p -S -${lines}`);
-      return stdout;
+      // 方法1: ANSIエスケープシーケンスを含めて取得
+      const { stdout: output1 } = await execAsync(`tmux capture-pane -t ${sessionName} -p -e -S -${lines}`);
+
+      // 方法2: 通常のキャプチャ
+      const { stdout: output2 } = await execAsync(`tmux capture-pane -t ${sessionName} -p -S -${lines}`);
+
+      // 方法3: 全履歴を取得
+      const { stdout: output3 } = await execAsync(`tmux capture-pane -t ${sessionName} -p -e -S -`);
+
+      // 「esc to interrupt」が含まれているものを優先
+      if (output1.toLowerCase().includes('esc to interrupt')) {
+        console.log('[TmuxConnector] Found "esc to interrupt" in output1 (with ANSI)');
+        return output1;
+      }
+      if (output2.toLowerCase().includes('esc to interrupt')) {
+        console.log('[TmuxConnector] Found "esc to interrupt" in output2 (normal)');
+        return output2;
+      }
+      if (output3.toLowerCase().includes('esc to interrupt')) {
+        console.log('[TmuxConnector] Found "esc to interrupt" in output3 (full history)');
+        return output3;
+      }
+
+      // どれにも含まれていない場合は最も長いものを返す
+      console.log('[TmuxConnector] "esc to interrupt" not found in any output');
+      console.log(`[TmuxConnector] output1 length: ${output1.length}, output2 length: ${output2.length}, output3 length: ${output3.length}`);
+
+      if (output3.length > output1.length && output3.length > output2.length) {
+        return output3;
+      } else if (output1.length > output2.length) {
+        return output1;
+      } else {
+        return output2;
+      }
     } catch (error) {
       console.error(`Failed to capture output from ${sessionName}:`, error);
       return '';
@@ -97,85 +129,28 @@ export class TmuxConnector {
   }
 
   /**
-   * コマンドが完了したか判定（プロンプト検知）
-   * Claude Codeの完了を正確に判定するため、以下を確認：
-   * 1. 処理中インジケータが表示されていない
-   * 2. 最後の行が空プロンプト（`> ` のみ）
-   * 3. その前に区切り線がある
+   * コマンドが完了したか判定
+   * 「esc to interrupt」が表示されていない = 完了
    */
   isCommandComplete(output: string): boolean {
     if (!output) return false;
 
-    const lines = output.split('\n');
-
     // 処理中インジケータをチェック
     const processingIndicators = [
-      /✢.*undefined/,        // 処理中インジケータ
-      /✻.*undefined/,        // 処理中インジケータ
-      /∴.*Thinking/,         // 思考中表示
-      /⏵⏵.*preparing/i,     // 準備中表示
+      /esc to interrupt/i,   // Claude Code処理中（最重要）
     ];
 
-    // 最後の20行をチェック
-    const lastLines = lines.slice(-20);
-
-    // 処理中インジケータがあれば未完了
-    for (const line of lastLines) {
-      for (const pattern of processingIndicators) {
-        if (pattern.test(line)) {
-          return false;
-        }
+    // 全体をチェック
+    for (const pattern of processingIndicators) {
+      if (pattern.test(output)) {
+        console.log('[TmuxConnector] Still processing: found processing indicator');
+        return false;
       }
     }
 
-    // ステータスバーのパターン（除外する）
-    const statusBarPatterns = [
-      /⏵⏵.*tokens?$/i,           // トークンカウンター
-      /bypass permissions/i,      // パーミッションステータス
-      /plan mode/i,               // モード表示
-    ];
-
-    // 最後の非空行を探す（ステータスバーと区切り線を除外）
-    let lastNonEmptyLine = '';
-    let lastNonEmptyIndex = -1;
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const trimmed = lines[i].trim();
-      if (!trimmed || trimmed.match(/^[─]+$/)) {
-        // 空行または区切り線はスキップ
-        continue;
-      }
-
-      // ステータスバーかチェック
-      let isStatusBar = false;
-      for (const pattern of statusBarPatterns) {
-        if (pattern.test(trimmed)) {
-          isStatusBar = true;
-          break;
-        }
-      }
-
-      if (!isStatusBar) {
-        lastNonEmptyLine = trimmed;
-        lastNonEmptyIndex = i;
-        break;
-      }
-    }
-
-    // 最後の非空行が空プロンプト（`> ` のみ、またはそれ以下）かチェック
-    if (!lastNonEmptyLine.match(/^>\s*$/)) {
-      return false;
-    }
-
-    // その前に区切り線があるかチェック（最後の10行以内）
-    let hasSeparator = false;
-    for (let i = Math.max(0, lastNonEmptyIndex - 10); i < lastNonEmptyIndex; i++) {
-      if (lines[i].trim().match(/^[─]+$/)) {
-        hasSeparator = true;
-        break;
-      }
-    }
-
-    return hasSeparator;
+    // 処理中インジケータがなければ完了
+    console.log('[TmuxConnector] Command completed: no processing indicators found');
+    return true;
   }
 
   /**

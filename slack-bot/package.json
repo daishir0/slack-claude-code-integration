@@ -14,7 +14,7 @@
     "claude",
     "mcp"
   ],
-  "author": "Engineers Hub Ltd",
+  "author": "",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.13.2",
