@@ -335,29 +335,6 @@ Show current time
 | SLACK_APP_TOKEN      | App-Level Token         | `xapp-1-...`            |
 | DEBUG                | Debug log output        | `false`                 |
 
-### Running with PM2
-
-```bash
-# Install PM2
-npm install -g pm2
-
-# Build TypeScript
-npm run build
-
-# Start application
-pm2 start dist/slack-bot/index.js --name slack-claude-bot
-
-# View logs
-pm2 logs slack-claude-bot
-
-# Restart
-pm2 restart slack-claude-bot
-
-# Setup auto-start
-pm2 startup
-pm2 save
-```
-
 ### Running with systemd
 
 Create systemd service file:
@@ -440,6 +417,7 @@ set-option -g history-limit 50000
 
 1. **Never commit `.env` file to Git**
    - Add to `.gitignore`
+   - Use `slack-bot/.env.example` as template
    - Use environment variables in production
 
 2. **Token Rotation**
@@ -447,20 +425,9 @@ set-option -g history-limit 50000
    - Monitor token usage regularly
 
 3. **Access Control**
-   - Invite bot only to specific channels
+   - Use Slack's built-in workspace permissions to control bot access
+   - Invite bot only to specific channels where needed
    - Use private channels for sensitive operations
-   - Implement user allowlist if needed
-
-### AWS Security (for EC2 deployment)
-
-```bash
-# Use AWS Secrets Manager
-aws secretsmanager create-secret \
-  --name slack-claude-bot \
-  --secret-string file://.env
-
-# Restrict EC2 instance access with IAM roles
-```
 
 ## 🚨 Troubleshooting
 
@@ -629,12 +596,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ## 🙏 Acknowledgments
 
-This project is based on the original MCP-based implementation by [Engineers Hub Ltd](https://github.com/engineers-hub). Special thanks for their original work and inspiration.
+This project was inspired by the original MCP-based Slack integration concept by [Engineers Hub Ltd](https://github.com/engineers-hub). The current implementation uses a **tmux-based architecture** instead of MCP, but we appreciate their pioneering work in this area.
 
 **Additional credits:**
 - [Claude Code](https://claude.ai/code) by Anthropic
 - [Slack API](https://api.slack.com)
 - [Node.js](https://nodejs.org)
+- [tmux](https://github.com/tmux/tmux)
 
 ---
 
@@ -979,29 +947,6 @@ nohup npm run start:bot > app.log 2>&1 &
 | SLACK_APP_TOKEN      | App-Level Token            | `xapp-1-...`               |
 | DEBUG                | デバッグログの出力         | `false`                    |
 
-### PM2での運用
-
-```bash
-# PM2のインストール
-npm install -g pm2
-
-# TypeScriptをビルド
-npm run build
-
-# アプリケーションの起動
-pm2 start dist/slack-bot/index.js --name slack-claude-bot
-
-# ログの確認
-pm2 logs slack-claude-bot
-
-# 再起動
-pm2 restart slack-claude-bot
-
-# 自動起動設定
-pm2 startup
-pm2 save
-```
-
 ### systemdでの運用
 
 systemdサービスファイルを作成:
@@ -1084,6 +1029,7 @@ set-option -g history-limit 50000
 
 1. **`.env`ファイルをGitにコミットしない**
    - `.gitignore`に追加
+   - `slack-bot/.env.example`をテンプレートとして使用
    - 本番環境では環境変数を使用
 
 2. **トークンのローテーション**
@@ -1091,20 +1037,9 @@ set-option -g history-limit 50000
    - トークンの使用状況を定期的に監視
 
 3. **アクセス制限**
-   - Botを特定のチャンネルのみに招待
+   - Slackのワークスペース権限でBotアクセスを制御
+   - 必要なチャンネルのみにBotを招待
    - センシティブな操作はプライベートチャンネルで実施
-   - 必要に応じてユーザー許可リストを実装
-
-### AWS セキュリティ（EC2デプロイ時）
-
-```bash
-# AWS Secrets Managerを使用
-aws secretsmanager create-secret \
-  --name slack-claude-bot \
-  --secret-string file://.env
-
-# IAMロールでEC2インスタンスのアクセスを制限
-```
 
 ## 🚨 トラブルシューティング
 
@@ -1273,12 +1208,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ## 🙏 謝辞
 
-このプロジェクトは、[Engineers Hub Ltd](https://github.com/engineers-hub) による元のMCPベース実装に基づいています。元の実装とインスピレーションに感謝を申し上げます。
+このプロジェクトは、[Engineers Hub Ltd](https://github.com/engineers-hub) による元のMCPベースSlack統合コンセプトに触発されました。現在の実装はMCPではなく**tmuxベースのアーキテクチャ**を使用していますが、この分野における先駆的な取り組みに感謝いたします。
 
 **その他のクレジット:**
 - [Claude Code](https://claude.ai/code) by Anthropic
 - [Slack API](https://api.slack.com)
 - [Node.js](https://nodejs.org)
+- [tmux](https://github.com/tmux/tmux)
 
 ---
 
