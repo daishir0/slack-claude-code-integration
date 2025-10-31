@@ -374,7 +374,7 @@ MIT License
 
 ## 🙏 Acknowledgments
 
-This project is based on the original MCP-based implementation by [Engineers Hub Ltd](https://github.com/engineers-hub). Special thanks for their foundational work.
+This project is based on the original MCP-based implementation by [Engineers Hub Ltd](https://github.com/engineers-hub). Special thanks for their original work and inspiration.
 
 **Additional credits:**
 - [Claude Code](https://claude.ai/code) by Anthropic
@@ -763,7 +763,7 @@ MIT License
 
 ## 🙏 謝辞
 
-このプロジェクトは、[Engineers Hub Ltd](https://github.com/engineers-hub) による元のMCPベース実装に基づいています。基礎的な作業に特別な感謝を申し上げます。
+このプロジェクトは、[Engineers Hub Ltd](https://github.com/engineers-hub) による元のMCPベース実装に基づいています。元の実装に感謝を申し上げます。
 
 **その他のクレジット:**
 - [Claude Code](https://claude.ai/code) by Anthropic
