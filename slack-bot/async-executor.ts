@@ -117,6 +117,7 @@ export class AsyncExecutor {
       let lastOutput = '';
       let noChangeCount = 0;
       let lastUpdateTime = Date.now();
+      let completionCount = 0;  // 完了判定の安定性カウンター
 
       // 完了するまで無限ループ（タイムアウトなし）
       while (this.activeExecutions.get(executionKey)) {
@@ -152,9 +153,19 @@ export class AsyncExecutor {
           lastUpdateTime = now;
         }
 
-        // 完了判定
+        // 完了判定（安定性チェック付き）
         if (this.tmuxConnector.isCommandComplete(currentOutput)) {
-          // 完了！画面が安定するまで待機（出力が変化しなくなるまで）
+          completionCount++;
+          console.log(`[AsyncExecutor] Completion detected (${completionCount}/2), checking stability...`);
+
+          if (completionCount < 2) {
+            // まだ安定していない、次のループで再確認
+            lastOutput = currentOutput;
+            continue;
+          }
+
+          // 2回連続で完了判定が出た！画面が安定するまで待機（出力が変化しなくなるまで）
+          console.log('[AsyncExecutor] Completion confirmed after stability check');
           let stableOutput = currentOutput;
           let stabilityCount = 0;
           const requiredStability = 3;  // 3回連続で変化がなければ安定とみなす
@@ -186,51 +197,47 @@ export class AsyncExecutor {
           // ANSIエスケープシーケンスを除去
           let cleanOutput = this.removeAnsiEscapeCodes(finalOutput);
 
-          // コマンドプロンプト（`>` で始まる行）を探して、最後から2番目のプロンプトの次の行から最後のプロンプトの前の行までを取得
-          const lines = cleanOutput.split('\n');
-          const promptIndices: number[] = [];
+          console.log('[AsyncExecutor] Clean output length:', cleanOutput.length);
+          console.log('[AsyncExecutor] First 200 chars:', cleanOutput.substring(0, 200));
 
-          for (let i = 0; i < lines.length; i++) {
-            if (lines[i].trim().match(/^>/)) {
-              promptIndices.push(i);
-              console.log(`[AsyncExecutor] Prompt found at line ${i}: "${lines[i]}"`);
+          // 最新のClaude応答を抽出（行頭 > で始まる最後の行から抽出）
+          const lines = cleanOutput.split('\n');
+          let startIndex = -1;
+
+          // 最後から検索して、行頭に "> " で始まる最後の行を見つける（ユーザーのコマンド入力）
+          for (let i = lines.length - 1; i >= 0; i--) {
+            const trimmed = lines[i].trim();
+            if (trimmed.startsWith('> ')) {  // 半角スペース付き
+              startIndex = i;
+              console.log(`[AsyncExecutor] Found user prompt at line ${i}: "${trimmed.substring(0, 50)}..."`);
+              break;
             }
           }
 
-          console.log('[AsyncExecutor] Total prompts found:', promptIndices.length);
+          // 見つからない場合は、最後の100行を使用（全履歴ではなく）
+          let relevantLines = startIndex >= 0 ? lines.slice(startIndex) : lines.slice(-100);
 
-          let newOutput = cleanOutput;
+          console.log(`[AsyncExecutor] Extracting from line ${startIndex}, total ${relevantLines.length} lines`);
 
-          // 2番目に最後のプロンプトの次の行から、最後のプロンプトの前の行までを取得
-          if (promptIndices.length >= 2) {
-            const secondLastPromptIndex = promptIndices[promptIndices.length - 2];
-            const lastPromptIndex = promptIndices[promptIndices.length - 1];
-            console.log(`[AsyncExecutor] Extracting lines ${secondLastPromptIndex + 1} to ${lastPromptIndex - 1}`);
-            // プロンプトの次の行から、次のプロンプトの前の行まで（プロンプト自体は含まない）
-            newOutput = lines.slice(secondLastPromptIndex + 1, lastPromptIndex).join('\n').trim();
-          } else if (promptIndices.length === 1) {
-            // プロンプトが1つしかない場合、その次の行から最後まで
-            const promptIndex = promptIndices[0];
-            console.log(`[AsyncExecutor] Single prompt found, extracting from line ${promptIndex + 1}`);
-            newOutput = lines.slice(promptIndex + 1).join('\n').trim();
-          }
-
-          console.log('[AsyncExecutor] Extracted output length:', newOutput.length);
-          console.log('[AsyncExecutor] First 200 chars:', newOutput.substring(0, 200));
-
-          // 処理中画面の行を除外
-          const outputLines = newOutput.split('\n');
-          const filteredLines = outputLines.filter(line => {
+          // 装飾的な区切り線、プロンプト、処理中インジケータを除外
+          const filteredLines = relevantLines.filter(line => {
             const trimmed = line.trim();
+            // 空行
+            if (!trimmed) return false;
+            // 装飾的な区切り線（─── の連続）
+            if (/^[─\-═]{10,}$/.test(trimmed)) return false;
+            // プロンプト行（> だけの行）
+            if (/^>[\s　]*$/.test(trimmed)) return false;
             // 処理中インジケータを除外
             if (trimmed.startsWith('✢') || trimmed.startsWith('✻') ||
                 trimmed.startsWith('∴') || trimmed.includes('undefined…') ||
-                trimmed.includes('Thinking…') || trimmed.startsWith('⎿')) {
+                trimmed.includes('Thinking…') || trimmed.startsWith('⎿') ||
+                trimmed.includes('bypass permissions on')) {
               return false;
             }
             return true;
           });
-          newOutput = filteredLines.join('\n').trim();
+          const newOutput = filteredLines.join('\n').trim();
 
           console.log('[AsyncExecutor] After filtering, length:', newOutput.length);
           console.log('[AsyncExecutor] After filtering, first 200 chars:', newOutput.substring(0, 200));
@@ -268,6 +275,12 @@ export class AsyncExecutor {
             duration,
             completed: true
           };
+        } else {
+          // 完了判定が出なかった場合はカウンターをリセット
+          if (completionCount > 0) {
+            console.log('[AsyncExecutor] Completion check reset - still processing');
+            completionCount = 0;
+          }
         }
 
         // 出力が長時間変化していない場合（5回連続 = 約25-150秒）
