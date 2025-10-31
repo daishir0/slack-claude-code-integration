@@ -2,24 +2,79 @@
 
 Control Claude Code running in tmux sessions on EC2 from Slack. Operate multiple tmux sessions in parallel with mobile-friendly commands.
 
+## 📑 Table of Contents
+
+- [Overview](#-overview)
+- [Key Features](#key-features)
+- [Architecture](#architecture)
+- [Setup Guide](#-setup-guide)
+- [Usage](#-usage)
+- [Advanced Configuration](#-advanced-configuration)
+- [Running with systemd](#running-with-systemd)
+- [Performance Tuning](#-performance-tuning)
+- [Security Best Practices](#-security-best-practices)
+- [Troubleshooting](#-troubleshooting)
+- [FAQ](#-faq)
+- [Project Structure](#️-project-structure)
+- [Contributing](#-contributing)
+- [Changelog](#-changelog)
+- [References](#-references)
+- [License](#-license)
+
 ## 🎯 Overview
 
-This project enables Slack-based control of **existing Claude Code sessions** running inside tmux.
+This project enables Slack-based control of **existing Claude Code sessions** running inside tmux. With real-time incremental output delivery, you can monitor progress as commands execute.
 
 ### Architecture
 
 ```
-Slack → Slack Bot → Tmux Sessions → Claude Code
+┌─────────────┐
+│   Slack     │
+│   (User)    │
+└──────┬──────┘
+       │ Socket Mode
+       │
+┌──────▼──────────────────────┐
+│   Slack Bot                 │
+│   (Node.js + @slack/bolt)   │
+│   - /cl (list sessions)     │
+│   - /c (connect session)    │
+│   - Thread message handler  │
+└──────┬──────────────────────┘
+       │
+       │ tmux operations
+       │
+┌──────▼──────────────────────┐
+│   Tmux Session Manager      │
+│   - session-mapping.json    │
+│   - Auto cleanup (60min)    │
+└──────┬──────────────────────┘
+       │
+       │ tmux send-keys
+       │
+┌──────▼──────────────────────┐
+│   Tmux Sessions             │
+│   ┌─────────────────────┐   │
+│   │ Session: myproject  │   │
+│   │ ┌─────────────────┐ │   │
+│   │ │  Claude Code    │ │   │
+│   │ │  CLI            │ │   │
+│   │ └─────────────────┘ │   │
+│   └─────────────────────┘   │
+└─────────────────────────────┘
 ```
 
 ### Key Features
 
 - **Short Commands**: `/cl` (list sessions), `/c <session>` (connect)
 - **Thread-Based Dialog**: Manage each session in separate threads
+- **Real-Time Incremental Output**: See progress as commands execute (500+ chars)
 - **Async Processing**: No timeout, infinite wait until completion
+- **Smart Output Extraction**: Automatically extracts relevant output from user prompt onwards
 - **Long-Running Support**: Elapsed time display with dynamic update intervals
 - **Auto-Split**: Long outputs automatically split into multiple messages
 - **Mobile-Friendly**: Easy operation with short commands
+- **Completion Detection**: Stable completion detection with 2-check confirmation
 
 ## 🚀 Setup Guide
 
@@ -101,8 +156,7 @@ cd slack-claude-code-integration
 #### 2-2. Configure Environment Variables
 
 ```bash
-# Create .env file in slack-bot directory
-cd slack-bot
+# Create .env file in project root
 cp .env.example .env
 
 # Edit .env file
@@ -124,12 +178,8 @@ DEBUG=false
 #### 2-3. Install Dependencies
 
 ```bash
-# Run in root directory
-cd ..
+# Install all dependencies
 npm install
-
-# Install slack-bot dependencies
-cd slack-bot && npm install && cd ..
 
 # Build TypeScript
 npm run build
@@ -220,10 +270,10 @@ Show current time
 **Example response:**
 
 ```
-✅ Completed (3 seconds)
+✅ Completed (3 seconds) - Messages sent: 1
 
-🕐 Current date and time
-October 31, 2025 (Friday) 11:30:00 AM JST
+📄 [Final 1]
+[Output content here]
 ```
 
 ## 📖 Usage
@@ -236,6 +286,13 @@ October 31, 2025 (Friday) 11:30:00 AM JST
 
 ### Feature Details
 
+#### Real-Time Incremental Output
+
+- Outputs 500+ characters trigger incremental message delivery
+- Shows progress with `📄 [In Progress N]` markers
+- Final output sent with `📄 [Final N]` markers
+- Automatically filters out processing indicators
+
 #### Async Processing
 
 - No timeout, infinite wait until completion
@@ -245,6 +302,16 @@ October 31, 2025 (Friday) 11:30:00 AM JST
   - 30 seconds ~ 5 minutes: every 5 seconds
   - 5 minutes ~ 30 minutes: every 10 seconds
   - Over 30 minutes: every 30 seconds
+
+#### Smart Output Extraction
+
+- Automatically finds user prompt (line starting with `> `)
+- Extracts only relevant output from that point onwards
+- Filters out:
+  - Processing indicators (✢, ✻, ∴, etc.)
+  - System messages ("Thinking…", "undefined…")
+  - Decorative lines
+  - Empty prompt lines
 
 #### Auto-Split Long Outputs
 
@@ -291,36 +358,109 @@ pm2 startup
 pm2 save
 ```
 
-## 🏗️ Project Structure
+### Running with systemd
 
-```
-slack-claude-code-integration/
-├── slack-bot/                # Slack Bot (tmux-based)
-│   ├── index.ts              # Main bot implementation
-│   ├── tmux-connector.ts     # Tmux operations
-│   ├── session-manager.ts    # Session management
-│   ├── async-executor.ts     # Async execution
-│   └── package.json
-├── dist/                     # TypeScript build output
-├── .gitignore                # Git exclusion settings
-├── package.json              # Root package definition
-├── tsconfig.json             # TypeScript config
-└── README.md                 # This file
+Create systemd service file:
+
+```bash
+sudo nano /etc/systemd/system/slack-claude-bot.service
 ```
 
-## 🔐 Security
+Service file content:
+
+```ini
+[Unit]
+Description=Slack Claude Code Bot (Tmux Integration)
+After=network.target
+
+[Service]
+Type=simple
+User=your-username
+WorkingDirectory=/path/to/slack-claude-code-integration
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/slack-bot/index.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=slack-claude-bot
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Start and manage service:
+
+```bash
+# Enable and start service
+sudo systemctl enable slack-claude-bot.service
+sudo systemctl start slack-claude-bot.service
+
+# Check status
+sudo systemctl status slack-claude-bot.service
+
+# View logs
+sudo journalctl -u slack-claude-bot.service -f
+
+# Restart service
+sudo systemctl restart slack-claude-bot.service
+```
+
+## ⚡ Performance Tuning
+
+### Message Delivery Optimization
+
+Current settings in `slack-bot/async-executor.ts`:
+- Incremental output threshold: 500 characters
+- Message split size: 2500 characters
+
+To adjust:
+
+```typescript
+// Change incremental output threshold
+if (diff.length >= 300) {  // 500 → 300 for more frequent updates
+  // Send incremental output
+}
+
+// Change split size
+const chunks = this.splitOutput(output, 3000);  // 2500 → 3000 for larger chunks
+```
+
+### Tmux Performance
+
+Increase history buffer in `~/.tmux.conf`:
+
+```bash
+set-option -g history-limit 50000
+```
+
+## 🔐 Security Best Practices
 
 ### Credential Management
 
-- **Never** commit `.env` file to Git
-- Rotate tokens regularly
-- Use environment variables in production
+1. **Never commit `.env` file to Git**
+   - Add to `.gitignore`
+   - Use environment variables in production
 
-### Access Control
+2. **Token Rotation**
+   - Rotate Bot tokens every 90 days
+   - Monitor token usage regularly
 
-- Invite bot only to specific channels
-- Use in private channels recommended
-- Filter by user list as needed
+3. **Access Control**
+   - Invite bot only to specific channels
+   - Use private channels for sensitive operations
+   - Implement user allowlist if needed
+
+### AWS Security (for EC2 deployment)
+
+```bash
+# Use AWS Secrets Manager
+aws secretsmanager create-secret \
+  --name slack-claude-bot \
+  --secret-string file://.env
+
+# Restrict EC2 instance access with IAM roles
+```
 
 ## 🚨 Troubleshooting
 
@@ -337,6 +477,13 @@ slack-claude-code-integration/
    - `message.groups`
    - `message.im`
 
+3. Check service status:
+   ```bash
+   sudo systemctl status slack-claude-bot.service
+   # or
+   pm2 status
+   ```
+
 ### "No tmux sessions found"
 
 ```bash
@@ -348,9 +495,23 @@ tmux new -s myproject
 claude
 ```
 
+### "Output not showing correctly"
+
+Check logs for output extraction:
+```bash
+# systemd logs
+sudo journalctl -u slack-claude-bot.service -f | grep "Found user prompt"
+
+# PM2 logs
+pm2 logs slack-claude-bot | grep "Found user prompt"
+```
+
 ### View Logs
 
 ```bash
+# When using systemd
+sudo journalctl -u slack-claude-bot.service -f
+
 # When using PM2
 pm2 logs slack-claude-bot
 
@@ -360,6 +521,92 @@ tail -f app.log
 # Error logs only
 grep ERROR app.log
 ```
+
+## ❓ FAQ
+
+### Q: Can multiple users use this simultaneously?
+
+A: Yes. Each user can connect to different tmux sessions and work in parallel.
+
+### Q: What happens if the session disconnects?
+
+A: The tmux session continues running. Reconnect with `/c` command to resume work.
+
+### Q: Is command history preserved?
+
+A: Yes, as long as the tmux session exists, Claude Code history is preserved.
+
+### Q: Do long-running tasks timeout?
+
+A: No, there is no timeout. The bot waits infinitely until completion, displaying elapsed time periodically.
+
+### Q: Can I see progress during long operations?
+
+A: Yes! The real-time incremental output feature sends progress updates as output accumulates (every 500+ characters).
+
+## 🏗️ Project Structure
+
+```
+slack-claude-code-integration/
+├── slack-bot/                # Slack Bot (tmux-based)
+│   ├── index.ts              # Main bot implementation
+│   ├── tmux-connector.ts     # Tmux operations
+│   ├── session-manager.ts    # Session management
+│   ├── async-executor.ts     # Async execution & incremental output
+│   └── package.json
+├── dist/                     # TypeScript build output
+├── .gitignore                # Git exclusion settings
+├── .env.example              # Environment variable template
+├── package.json              # Root package definition
+├── tsconfig.json             # TypeScript config
+└── README.md                 # This file
+```
+
+## 🤝 Contributing
+
+Pull requests are welcome! Please follow these steps:
+
+1. Fork this repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Development Guidelines
+
+- Use TypeScript strict mode
+- Follow ESLint rules
+- Write clear commit messages in Japanese or English
+- Add tests for new features
+
+## 📝 Changelog
+
+### [2.0.0] - 2025-10-31
+
+#### Added
+- Real-time incremental output delivery (Plan 1)
+- Stable completion detection with 2-check confirmation
+- Automatic user prompt position detection
+- Smart output filtering (removes processing indicators)
+- Detailed logging for debugging
+
+#### Changed
+- Message length limit handling (chat.update vs chat.postMessage)
+- Output extraction now starts from user prompt (`> `)
+
+#### Fixed
+- False positive completion detection
+- Output containing past history
+- Empty output messages
+
+### [1.0.0] - 2025-10-01
+
+#### Added
+- Initial release
+- tmux-based session management
+- Async processing with status updates
+- Dynamic update intervals
+- Auto-split long outputs
 
 ## 📚 References
 
@@ -372,6 +619,14 @@ grep ERROR app.log
 
 MIT License
 
+Copyright (c) 2025
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 ## 🙏 Acknowledgments
 
 This project is based on the original MCP-based implementation by [Engineers Hub Ltd](https://github.com/engineers-hub). Special thanks for their original work and inspiration.
@@ -383,32 +638,87 @@ This project is based on the original MCP-based implementation by [Engineers Hub
 
 ---
 
-**Last Updated**: October 2025
+**Last Updated**: October 31, 2025
 
 ---
 
 # Slack × Claude Code tmux統合
 
-EC2上のtmux内で動作するClaude CodeをSlackから操作できる統合システムです。複数のtmuxセッションを並行操作し、スマホからも快適に利用できます。
+EC2上のtmux内で動作するClaude CodeをSlackから操作できる統合システムです。複数のtmuxセッションを並行操作し、リアルタイムで進捗を確認しながら快適に作業できます。
+
+## 📑 目次
+
+- [概要](#-概要)
+- [主な機能](#主な機能)
+- [アーキテクチャ](#アーキテクチャ)
+- [セットアップガイド](#-セットアップガイド)
+- [使い方](#-使い方)
+- [詳細設定](#-詳細設定)
+- [systemdでの運用](#systemdでの運用)
+- [パフォーマンスチューニング](#-パフォーマンスチューニング)
+- [セキュリティベストプラクティス](#-セキュリティベストプラクティス)
+- [トラブルシューティング](#-トラブルシューティング)
+- [よくある質問](#-よくある質問)
+- [プロジェクト構造](#️-プロジェクト構造)
+- [コントリビューション](#-コントリビューション)
+- [変更履歴](#-変更履歴)
+- [参考リンク](#-参考リンク)
+- [ライセンス](#-ライセンス)
 
 ## 🎯 概要
 
-このプロジェクトは、tmux内で動作している**既存のClaude Codeセッション**をSlackから操作可能にします。
+このプロジェクトは、tmux内で動作している**既存のClaude Codeセッション**をSlackから操作可能にします。リアルタイム差分送信により、コマンド実行中の進捗をリアルタイムで確認できます。
 
 ### アーキテクチャ
 
 ```
-Slack → Slack Bot → Tmux Sessions → Claude Code
+┌─────────────┐
+│   Slack     │
+│   (User)    │
+└──────┬──────┘
+       │ Socket Mode
+       │
+┌──────▼──────────────────────┐
+│   Slack Bot                 │
+│   (Node.js + @slack/bolt)   │
+│   - /cl (セッション一覧)    │
+│   - /c (セッション接続)     │
+│   - スレッドメッセージ処理  │
+└──────┬──────────────────────┘
+       │
+       │ tmux操作
+       │
+┌──────▼──────────────────────┐
+│   Tmuxセッション管理         │
+│   - session-mapping.json    │
+│   - 自動クリーンアップ(60分)│
+└──────┬──────────────────────┘
+       │
+       │ tmux send-keys
+       │
+┌──────▼──────────────────────┐
+│   Tmuxセッション             │
+│   ┌─────────────────────┐   │
+│   │ Session: myproject  │   │
+│   │ ┌─────────────────┐ │   │
+│   │ │  Claude Code    │ │   │
+│   │ │  CLI            │ │   │
+│   │ └─────────────────┘ │   │
+│   └─────────────────────┘   │
+└─────────────────────────────┘
 ```
 
 ### 主な機能
 
 - **短縮コマンド**: `/cl`（セッション一覧）、`/c <session>`（接続）
 - **スレッドベース対話**: 各セッションを個別のスレッドで管理
+- **リアルタイム差分送信**: コマンド実行中の進捗をリアルタイムで確認（500文字以上）
 - **非同期処理**: タイムアウトなし、完了まで無限待機
+- **スマート出力抽出**: ユーザープロンプト以降の関連出力のみを自動抽出
 - **長時間処理対応**: 経過時間表示と動的更新頻度調整
 - **自動分割**: 長い出力を自動的に複数メッセージに分割
 - **スマホ対応**: 短いコマンドで快適に操作
+- **完了判定**: 2回連続確認による安定した完了判定
 
 ## 🚀 セットアップガイド
 
@@ -490,8 +800,7 @@ cd slack-claude-code-integration
 #### 2-2. 環境変数の設定
 
 ```bash
-# slack-botディレクトリに.envファイルを作成
-cd slack-bot
+# プロジェクトルートに.envファイルを作成
 cp .env.example .env
 
 # .envファイルを編集
@@ -513,12 +822,8 @@ DEBUG=false
 #### 2-3. 依存関係のインストール
 
 ```bash
-# ルートディレクトリで実行
-cd ..
+# すべての依存関係をインストール
 npm install
-
-# slack-botディレクトリ
-cd slack-bot && npm install && cd ..
 
 # TypeScriptをビルド
 npm run build
@@ -609,10 +914,10 @@ nohup npm run start:bot > app.log 2>&1 &
 **応答例:**
 
 ```
-✅ 完了 (3秒)
+✅ 完了 (3秒) - 送信メッセージ数: 1
 
-🕐 現在の日時
-2025年10月31日（金曜日）11時30分00秒 JST
+📄 [最終 1]
+[出力内容がここに表示されます]
 ```
 
 ## 📖 使い方
@@ -625,6 +930,13 @@ nohup npm run start:bot > app.log 2>&1 &
 
 ### 機能詳細
 
+#### リアルタイム差分送信
+
+- 500文字以上の出力が溜まると自動的に差分送信
+- `📄 [進行中 N]` マーカーで進捗を表示
+- 完了時に `📄 [最終 N]` マーカーで最終出力を送信
+- 処理中インジケータは自動的にフィルタリング
+
 #### 非同期処理
 
 - タイムアウトなし、完了まで無限待機
@@ -634,6 +946,16 @@ nohup npm run start:bot > app.log 2>&1 &
   - 30秒〜5分: 5秒ごと
   - 5分〜30分: 10秒ごと
   - 30分以上: 30秒ごと
+
+#### スマート出力抽出
+
+- ユーザープロンプト（`> `で始まる行）を自動検出
+- その位置以降の関連出力のみを抽出
+- 以下を自動的にフィルタリング:
+  - 処理中インジケータ（✢、✻、∴等）
+  - システムメッセージ（「Thinking…」「undefined…」）
+  - 装飾線
+  - 空のプロンプト行
 
 #### 長い出力の自動分割
 
@@ -680,36 +1002,109 @@ pm2 startup
 pm2 save
 ```
 
-## 🏗️ プロジェクト構造
+### systemdでの運用
 
-```
-slack-claude-code-integration/
-├── slack-bot/                # Slack Bot（tmuxベース）
-│   ├── index.ts              # メインBot実装
-│   ├── tmux-connector.ts     # tmux操作
-│   ├── session-manager.ts    # セッション管理
-│   ├── async-executor.ts     # 非同期実行
-│   └── package.json
-├── dist/                     # TypeScriptビルド出力
-├── .gitignore                # Git除外設定
-├── package.json              # ルートパッケージ定義
-├── tsconfig.json             # TypeScript設定
-└── README.md                 # このファイル
+systemdサービスファイルを作成:
+
+```bash
+sudo nano /etc/systemd/system/slack-claude-bot.service
 ```
 
-## 🔐 セキュリティ
+サービスファイルの内容:
+
+```ini
+[Unit]
+Description=Slack Claude Code Bot (Tmux Integration)
+After=network.target
+
+[Service]
+Type=simple
+User=your-username
+WorkingDirectory=/path/to/slack-claude-code-integration
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/slack-bot/index.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=slack-claude-bot
+
+[Install]
+WantedBy=multi-user.target
+```
+
+サービスの起動と管理:
+
+```bash
+# サービスの有効化と起動
+sudo systemctl enable slack-claude-bot.service
+sudo systemctl start slack-claude-bot.service
+
+# ステータス確認
+sudo systemctl status slack-claude-bot.service
+
+# ログ確認
+sudo journalctl -u slack-claude-bot.service -f
+
+# サービスの再起動
+sudo systemctl restart slack-claude-bot.service
+```
+
+## ⚡ パフォーマンスチューニング
+
+### メッセージ送信の最適化
+
+現在の設定（`slack-bot/async-executor.ts`）:
+- 差分送信の閾値: 500文字
+- メッセージ分割サイズ: 2500文字
+
+調整する場合:
+
+```typescript
+// 差分送信の閾値を変更
+if (diff.length >= 300) {  // 500 → 300でより頻繁に送信
+  // 差分送信
+}
+
+// 分割サイズを変更
+const chunks = this.splitOutput(output, 3000);  // 2500 → 3000でより大きなチャンクに
+```
+
+### tmuxのパフォーマンス
+
+`~/.tmux.conf`で履歴バッファを増やす:
+
+```bash
+set-option -g history-limit 50000
+```
+
+## 🔐 セキュリティベストプラクティス
 
 ### 認証情報の管理
 
-- `.env`ファイルは**絶対に**Gitにコミットしない
-- トークンは定期的にローテーション
-- 本番環境では環境変数を使用
+1. **`.env`ファイルをGitにコミットしない**
+   - `.gitignore`に追加
+   - 本番環境では環境変数を使用
 
-### アクセス制限
+2. **トークンのローテーション**
+   - Botトークンは90日ごとに再生成を推奨
+   - トークンの使用状況を定期的に監視
 
-- Botを特定のチャンネルのみに招待
-- プライベートチャンネルでの利用を推奨
-- 必要に応じてユーザーリストでフィルタリング
+3. **アクセス制限**
+   - Botを特定のチャンネルのみに招待
+   - センシティブな操作はプライベートチャンネルで実施
+   - 必要に応じてユーザー許可リストを実装
+
+### AWS セキュリティ（EC2デプロイ時）
+
+```bash
+# AWS Secrets Managerを使用
+aws secretsmanager create-secret \
+  --name slack-claude-bot \
+  --secret-string file://.env
+
+# IAMロールでEC2インスタンスのアクセスを制限
+```
 
 ## 🚨 トラブルシューティング
 
@@ -726,6 +1121,13 @@ slack-claude-code-integration/
    - `message.groups`
    - `message.im`
 
+3. サービスのステータスを確認:
+   ```bash
+   sudo systemctl status slack-claude-bot.service
+   # または
+   pm2 status
+   ```
+
 ### "No tmux sessions found"
 
 ```bash
@@ -737,9 +1139,23 @@ tmux new -s myproject
 claude
 ```
 
+### "出力が正しく表示されない"
+
+出力抽出のログを確認:
+```bash
+# systemdログ
+sudo journalctl -u slack-claude-bot.service -f | grep "Found user prompt"
+
+# PM2ログ
+pm2 logs slack-claude-bot | grep "Found user prompt"
+```
+
 ### ログの確認
 
 ```bash
+# systemd使用時
+sudo journalctl -u slack-claude-bot.service -f
+
 # PM2使用時
 pm2 logs slack-claude-bot
 
@@ -749,6 +1165,92 @@ tail -f app.log
 # エラーログのみ
 grep ERROR app.log
 ```
+
+## ❓ よくある質問
+
+### Q: 複数のユーザーが同時に使用できますか？
+
+A: はい、可能です。各ユーザーがそれぞれ異なるtmuxセッションに接続すれば、並行して作業できます。
+
+### Q: セッションが切断された場合はどうなりますか？
+
+A: tmuxセッション自体は継続しているため、再度 `/c` コマンドで接続すれば作業を再開できます。
+
+### Q: Claude Codeのコマンド履歴は保持されますか？
+
+A: はい、tmuxセッションが存在する限り、Claude Codeの履歴は保持されます。
+
+### Q: 長時間実行されるタスクはタイムアウトしますか？
+
+A: いいえ、タイムアウトはありません。完了まで無限に待機し、経過時間を定期的に表示します。
+
+### Q: 長い処理の進捗を確認できますか？
+
+A: はい！リアルタイム差分送信機能により、出力が500文字以上溜まるごとに進捗を確認できます。
+
+## 🏗️ プロジェクト構造
+
+```
+slack-claude-code-integration/
+├── slack-bot/                # Slack Bot（tmuxベース）
+│   ├── index.ts              # メインBot実装
+│   ├── tmux-connector.ts     # tmux操作
+│   ├── session-manager.ts    # セッション管理
+│   ├── async-executor.ts     # 非同期実行・差分送信
+│   └── package.json
+├── dist/                     # TypeScriptビルド出力
+├── .gitignore                # Git除外設定
+├── .env.example              # 環境変数テンプレート
+├── package.json              # ルートパッケージ定義
+├── tsconfig.json             # TypeScript設定
+└── README.md                 # このファイル
+```
+
+## 🤝 コントリビューション
+
+プルリクエストを歓迎します！以下の手順に従ってください：
+
+1. このリポジトリをフォーク
+2. フィーチャーブランチを作成 (`git checkout -b feature/amazing-feature`)
+3. 変更をコミット (`git commit -m 'Add amazing feature'`)
+4. ブランチにプッシュ (`git push origin feature/amazing-feature`)
+5. プルリクエストを作成
+
+### 開発ガイドライン
+
+- TypeScriptの厳格モードを使用
+- ESLintルールに従う
+- コミットメッセージは日本語または英語で明確に記述
+- 新機能にはテストを追加
+
+## 📝 変更履歴
+
+### [2.0.0] - 2025-10-31
+
+#### 追加
+- リアルタイム差分送信機能（案1）
+- 2回連続確認による安定した完了判定
+- ユーザープロンプト位置の自動検出
+- スマート出力フィルタリング（処理中インジケータ除去）
+- デバッグ用の詳細ログ
+
+#### 変更
+- メッセージ長制限の対応（chat.update vs chat.postMessage）
+- 出力抽出がユーザープロンプト（`> `）から開始するように変更
+
+#### 修正
+- 完了判定の誤検出（false positive）
+- 過去の履歴を含む出力
+- 空の出力メッセージ
+
+### [1.0.0] - 2025-10-01
+
+#### 追加
+- 初回リリース
+- tmuxベースのセッション管理
+- ステータス更新付き非同期処理
+- 動的更新頻度調整
+- 長い出力の自動分割
 
 ## 📚 参考リンク
 
@@ -761,9 +1263,17 @@ grep ERROR app.log
 
 MIT License
 
+Copyright (c) 2025
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 ## 🙏 謝辞
 
-このプロジェクトは、[Engineers Hub Ltd](https://github.com/engineers-hub) による元のMCPベース実装に基づいています。元の実装に感謝を申し上げます。
+このプロジェクトは、[Engineers Hub Ltd](https://github.com/engineers-hub) による元のMCPベース実装に基づいています。元の実装とインスピレーションに感謝を申し上げます。
 
 **その他のクレジット:**
 - [Claude Code](https://claude.ai/code) by Anthropic
@@ -772,4 +1282,4 @@ MIT License
 
 ---
 
-**最終更新**: 2025年10月
+**最終更新**: 2025年10月31日

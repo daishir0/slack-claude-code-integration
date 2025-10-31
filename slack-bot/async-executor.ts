@@ -119,6 +119,10 @@ export class AsyncExecutor {
       let lastUpdateTime = Date.now();
       let completionCount = 0;  // 完了判定の安定性カウンター
 
+      // 案1: リアルタイム差分送信用の変数
+      let lastSentOutput = '';  // 前回Slackに送信した出力
+      let sentMessageCount = 0;  // 送信したメッセージ数
+
       // 完了するまで無限ループ（タイムアウトなし）
       while (this.activeExecutions.get(executionKey)) {
         const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
@@ -135,6 +139,70 @@ export class AsyncExecutor {
 
         if (outputChanged) {
           noChangeCount = 0;
+
+          // 案1: 差分を抽出して送信
+          if (currentOutput.length > lastSentOutput.length) {
+            // ANSIエスケープシーケンスを除去
+            const cleanOutput = this.removeAnsiEscapeCodes(currentOutput);
+
+            // 「> 」で始まる最後の行を見つける（ユーザーのコマンド入力位置）
+            const lines = cleanOutput.split('\n');
+            let userPromptIndex = -1;
+            for (let i = lines.length - 1; i >= 0; i--) {
+              if (lines[i].trim().startsWith('> ')) {
+                userPromptIndex = i;
+                break;
+              }
+            }
+
+            // ユーザープロンプト以降のみを対象とする
+            const relevantLines = userPromptIndex >= 0 ? lines.slice(userPromptIndex) : lines;
+            const relevantOutput = relevantLines.join('\n');
+
+            // 前回送信分との差分を計算
+            const cleanLastSent = this.removeAnsiEscapeCodes(lastSentOutput);
+            const lastSentRelevantLines = userPromptIndex >= 0 ? cleanLastSent.split('\n').slice(userPromptIndex) : cleanLastSent.split('\n');
+            const lastSentRelevant = lastSentRelevantLines.join('\n');
+
+            if (relevantOutput.length > lastSentRelevant.length) {
+              const diff = relevantOutput.substring(lastSentRelevant.length);
+
+              // 一定量（500文字以上）溜まったら送信
+              if (diff.length >= 500) {
+                console.log(`[AsyncExecutor] Sending incremental output: ${diff.length} chars (from line ${userPromptIndex})`);
+
+                // 処理中インジケータなどをフィルタリング
+                const diffLines = diff.split('\n');
+                const filteredLines = diffLines.filter(line => {
+                  const trimmed = line.trim();
+                  if (!trimmed) return false;
+                  if (trimmed.startsWith('✢') || trimmed.startsWith('✻') ||
+                      trimmed.startsWith('∴') || trimmed.includes('undefined…') ||
+                      trimmed.includes('Thinking…') || trimmed.startsWith('⎿') ||
+                      trimmed.includes('bypass permissions on') ||
+                      trimmed.includes('esc to interrupt') ||
+                      /^>[\s　]*$/.test(trimmed) ||  // プロンプト行のみ除外
+                      /^[─\-═]{10,}$/.test(trimmed)) {  // 装飾線除外
+                    return false;
+                  }
+                  return true;
+                });
+
+                const cleanedDiff = filteredLines.join('\n').trim();
+
+                if (cleanedDiff.length > 0) {
+                  sentMessageCount++;
+                  await slackClient.chat.postMessage({
+                    channel: channelId,
+                    thread_ts: threadTs,
+                    text: `📄 [進行中 ${sentMessageCount}]\n\`\`\`\n${cleanedDiff}\n\`\`\``
+                  });
+
+                  lastSentOutput = currentOutput;
+                }
+              }
+            }
+          }
         } else {
           noChangeCount++;
         }
@@ -188,85 +256,87 @@ export class AsyncExecutor {
 
           console.log('[AsyncExecutor] Output stabilized after waiting');
           const finalOutput = stableOutput;
-
           const duration = Math.floor((Date.now() - startTime) / 1000);
 
-          console.log('[AsyncExecutor] === DEBUG: 完了判定 ===');
-          console.log('[AsyncExecutor] 最終出力の行数:', finalOutput.split('\n').length);
+          console.log('[AsyncExecutor] === 案1: 完了処理 ===');
+          console.log(`[AsyncExecutor] Total messages sent: ${sentMessageCount}`);
 
+          // 案1: 未送信の差分があれば送信
           // ANSIエスケープシーケンスを除去
-          let cleanOutput = this.removeAnsiEscapeCodes(finalOutput);
+          const cleanFinalOutput = this.removeAnsiEscapeCodes(finalOutput);
 
-          console.log('[AsyncExecutor] Clean output length:', cleanOutput.length);
-          console.log('[AsyncExecutor] First 200 chars:', cleanOutput.substring(0, 200));
-
-          // 最新のClaude応答を抽出（行頭 > で始まる最後の行から抽出）
-          const lines = cleanOutput.split('\n');
-          let startIndex = -1;
-
-          // 最後から検索して、行頭に "> " で始まる最後の行を見つける（ユーザーのコマンド入力）
-          for (let i = lines.length - 1; i >= 0; i--) {
-            const trimmed = lines[i].trim();
-            if (trimmed.startsWith('> ')) {  // 半角スペース付き
-              startIndex = i;
-              console.log(`[AsyncExecutor] Found user prompt at line ${i}: "${trimmed.substring(0, 50)}..."`);
+          // 「> 」で始まる最後の行を見つける（ユーザーのコマンド入力位置）
+          const finalLines = cleanFinalOutput.split('\n');
+          let finalUserPromptIndex = -1;
+          for (let i = finalLines.length - 1; i >= 0; i--) {
+            if (finalLines[i].trim().startsWith('> ')) {
+              finalUserPromptIndex = i;
+              console.log(`[AsyncExecutor] Found final user prompt at line ${i}: "${finalLines[i].trim().substring(0, 50)}..."`);
               break;
             }
           }
 
-          // 見つからない場合は、最後の100行を使用（全履歴ではなく）
-          let relevantLines = startIndex >= 0 ? lines.slice(startIndex) : lines.slice(-100);
+          // ユーザープロンプト以降のみを対象とする
+          const finalRelevantLines = finalUserPromptIndex >= 0 ? finalLines.slice(finalUserPromptIndex) : finalLines;
+          const finalRelevantOutput = finalRelevantLines.join('\n');
 
-          console.log(`[AsyncExecutor] Extracting from line ${startIndex}, total ${relevantLines.length} lines`);
-
-          // 装飾的な区切り線、プロンプト、処理中インジケータを除外
-          const filteredLines = relevantLines.filter(line => {
-            const trimmed = line.trim();
-            // 空行
-            if (!trimmed) return false;
-            // 装飾的な区切り線（─── の連続）
-            if (/^[─\-═]{10,}$/.test(trimmed)) return false;
-            // プロンプト行（> だけの行）
-            if (/^>[\s　]*$/.test(trimmed)) return false;
-            // 処理中インジケータを除外
-            if (trimmed.startsWith('✢') || trimmed.startsWith('✻') ||
-                trimmed.startsWith('∴') || trimmed.includes('undefined…') ||
-                trimmed.includes('Thinking…') || trimmed.startsWith('⎿') ||
-                trimmed.includes('bypass permissions on')) {
-              return false;
+          // 前回送信分も同じ方法で抽出
+          const cleanLastSentOutput = this.removeAnsiEscapeCodes(lastSentOutput);
+          const lastSentLines = cleanLastSentOutput.split('\n');
+          let lastSentUserPromptIndex = -1;
+          for (let i = lastSentLines.length - 1; i >= 0; i--) {
+            if (lastSentLines[i].trim().startsWith('> ')) {
+              lastSentUserPromptIndex = i;
+              break;
             }
-            return true;
-          });
-          const newOutput = filteredLines.join('\n').trim();
+          }
+          const lastSentRelevantLines = lastSentUserPromptIndex >= 0 ? lastSentLines.slice(lastSentUserPromptIndex) : lastSentLines;
+          const lastSentRelevantOutput = lastSentRelevantLines.join('\n');
 
-          console.log('[AsyncExecutor] After filtering, length:', newOutput.length);
-          console.log('[AsyncExecutor] After filtering, first 200 chars:', newOutput.substring(0, 200));
+          // 差分を計算
+          if (finalRelevantOutput.length > lastSentRelevantOutput.length) {
+            const remainingDiff = finalRelevantOutput.substring(lastSentRelevantOutput.length);
+            console.log(`[AsyncExecutor] Sending final diff: ${remainingDiff.length} chars (from line ${finalUserPromptIndex})`);
 
-          // 出力を分割
-          const chunks = this.splitOutput(newOutput || 'コマンドが実行されましたが、出力がありません');
-          console.log(`[AsyncExecutor] Split into ${chunks.length} chunks`);
-          chunks.forEach((chunk, index) => {
-            console.log(`[AsyncExecutor] Chunk ${index + 1} length: ${chunk.length}`);
-          });
+            // 処理中インジケータなどをフィルタリング
+            const diffLines = remainingDiff.split('\n');
+            const filteredLines = diffLines.filter(line => {
+              const trimmed = line.trim();
+              if (!trimmed) return false;
+              if (trimmed.startsWith('✢') || trimmed.startsWith('✻') ||
+                  trimmed.startsWith('∴') || trimmed.includes('undefined…') ||
+                  trimmed.includes('Thinking…') || trimmed.startsWith('⎿') ||
+                  trimmed.includes('bypass permissions on') ||
+                  trimmed.includes('esc to interrupt') ||
+                  /^>[\s　]*$/.test(trimmed) ||  // プロンプト行のみ除外
+                  /^[─\-═]{10,}$/.test(trimmed)) {  // 装飾線除外
+                return false;
+              }
+              return true;
+            });
 
-          // 最初のメッセージを短く更新（chat.updateは約2,000文字制限）
+            const finalCleanedDiff = filteredLines.join('\n').trim();
+
+            if (finalCleanedDiff.length > 0) {
+              // 最終差分を分割して送信
+              const chunks = this.splitOutput(finalCleanedDiff, 2500);
+              for (let i = 0; i < chunks.length; i++) {
+                sentMessageCount++;
+                await slackClient.chat.postMessage({
+                  channel: channelId,
+                  thread_ts: threadTs,
+                  text: `📄 [最終 ${sentMessageCount}${chunks.length > 1 ? ` - ${i + 1}/${chunks.length}` : ''}]\n\`\`\`\n${chunks[i]}\n\`\`\``
+                });
+              }
+            }
+          }
+
+          // ステータスメッセージを「✅ 完了」に更新
           await slackClient.chat.update({
             channel: channelId,
             ts: messageTs,
-            text: `✅ 完了 (${this.formatDuration(duration)})`
+            text: `✅ 完了 (${this.formatDuration(duration)}) - 送信メッセージ数: ${sentMessageCount}`
           });
-
-          // すべての出力をchat.postMessageで投稿（40,000文字制限）
-          for (let i = 0; i < chunks.length; i++) {
-            const outputMessage = `${chunks.length > 1 ? `[${i + 1}/${chunks.length}]\n\n` : ''}\`\`\`\n${chunks[i]}\n\`\`\``;
-            console.log(`[AsyncExecutor] Output message ${i + 1} length: ${outputMessage.length}`);
-
-            await slackClient.chat.postMessage({
-              channel: channelId,
-              thread_ts: threadTs,
-              text: outputMessage
-            });
-          }
 
           this.activeExecutions.delete(executionKey);
 
