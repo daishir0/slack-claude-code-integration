@@ -23,6 +23,7 @@ export interface ExecutionResult {
 export class AsyncExecutor {
   private tmuxConnector: TmuxConnector;
   private activeExecutions: Map<string, boolean> = new Map();
+  private lastSentMessages: Map<string, string> = new Map(); // executionKey -> 直前に送信したメッセージ
   private readonly POLL_INTERVAL = 10000; // 10秒固定
   private readonly DEBUG: boolean;
 
@@ -340,6 +341,7 @@ export class AsyncExecutor {
     if (this.activeExecutions.get(executionKey)) {
       console.log(`[AsyncExecutor] ⚠️ Session ${tmuxSession} is already being monitored. Stopping old monitoring and starting new one.`);
       this.activeExecutions.delete(executionKey);
+      this.lastSentMessages.delete(executionKey); // 前回のメッセージ履歴もクリア
       // await slackClient.chat.postMessage({
       //   channel: channelId,
       //   thread_ts: threadTs,
@@ -402,11 +404,30 @@ export class AsyncExecutor {
           const chunks = this.splitOutput(diff, 2500);
           for (let i = 0; i < chunks.length; i++) {
             sentMessageCount++;
+
+            // 前回送信したメッセージと比較
+            const currentMessage = chunks[i];
+            const lastMessage = this.lastSentMessages.get(executionKey);
+
+            // 同一メッセージの場合はスキップ
+            if (lastMessage === currentMessage) {
+              if (this.DEBUG) {
+                console.log(`[AsyncExecutor] Skipping duplicate message (${currentMessage.length} chars)`);
+              }
+              continue;
+            }
+
+            // 異なるメッセージのみ送信
+            const messageToSend = `\`\`\`\n${currentMessage}\n\`\`\``;
+
             await slackClient.chat.postMessage({
               channel: channelId,
               thread_ts: threadTs,
-              text: `\`\`\`\n${chunks[i]}\n\`\`\``
+              text: messageToSend
             });
+
+            // 送信後に保存
+            this.lastSentMessages.set(executionKey, currentMessage);
           }
         }
 
@@ -435,6 +456,7 @@ export class AsyncExecutor {
       });
 
       this.activeExecutions.delete(executionKey);
+      this.lastSentMessages.delete(executionKey);
 
       return {
         output: lastOutput,
@@ -452,6 +474,7 @@ export class AsyncExecutor {
       });
 
       this.activeExecutions.delete(executionKey);
+      this.lastSentMessages.delete(executionKey);
       throw error;
     }
   }
