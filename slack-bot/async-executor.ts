@@ -1,5 +1,6 @@
 /**
  * AsyncExecutor - 非同期コマンド実行とステータス更新を担当
+ * シンプルポーリング方式: 10秒間隔で差分を送信
  */
 
 import { TmuxConnector } from './tmux-connector';
@@ -22,19 +23,15 @@ export interface ExecutionResult {
 export class AsyncExecutor {
   private tmuxConnector: TmuxConnector;
   private activeExecutions: Map<string, boolean> = new Map();
+  private readonly POLL_INTERVAL = 10000; // 10秒固定
+  private readonly DEBUG: boolean;
 
   constructor(tmuxConnector: TmuxConnector) {
     this.tmuxConnector = tmuxConnector;
-  }
-
-  /**
-   * 更新頻度を経過時間に応じて動的に調整
-   */
-  private getUpdateInterval(elapsedSeconds: number): number {
-    if (elapsedSeconds < 30) return 2000;       // 最初の30秒: 2秒ごと
-    if (elapsedSeconds < 300) return 5000;      // 30秒〜5分: 5秒ごと
-    if (elapsedSeconds < 1800) return 10000;    // 5分〜30分: 10秒ごと
-    return 30000;                                // 30分以上: 30秒ごと
+    this.DEBUG = process.env.DEBUG === 'true';
+    if (this.DEBUG) {
+      console.log('[AsyncExecutor] DEBUG MODE ENABLED');
+    }
   }
 
   /**
@@ -56,7 +53,6 @@ export class AsyncExecutor {
 
   /**
    * 出力を分割する（Slackのメッセージ長制限対策）
-   * ヘッダーやマークダウンを考慮して、実際の上限より小さくする
    */
   private splitOutput(output: string, maxLength: number = 2500): string[] {
     if (output.length <= maxLength) {
@@ -72,11 +68,9 @@ export class AsyncExecutor {
         break;
       }
 
-      // maxLengthで切り取る
       const chunk = remaining.substring(0, maxLength);
       const lastNewline = chunk.lastIndexOf('\n');
 
-      // 最後の改行で分割（文の途中で切らないように）
       if (lastNewline > 0) {
         chunks.push(remaining.substring(0, lastNewline));
         remaining = remaining.substring(lastNewline + 1);
@@ -90,12 +84,272 @@ export class AsyncExecutor {
   }
 
   /**
-   * 非同期でコマンドを実行し、定期的にステータスを更新
-   * タイムアウトなし、完了まで無限に待機
+   * ANSIエスケープシーケンスを除去
+   */
+  private removeAnsiEscapeCodes(text: string): string {
+    // eslint-disable-next-line no-control-regex
+    return text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1B\[[\?0-9;]*[a-zA-Z]/g, '');
+  }
+
+  /**
+   * 差分を計算して整形（アンカーポイント方式）
+   */
+  private calculateDiff(previousOutput: string, currentOutput: string): string {
+    // ANSIエスケープシーケンスを除去してから比較
+    const cleanPrevious = this.removeAnsiEscapeCodes(previousOutput);
+    const cleanCurrent = this.removeAnsiEscapeCodes(currentOutput);
+
+    if (this.DEBUG) {
+      console.log('[AsyncExecutor] === calculateDiff START ===');
+      console.log(`[AsyncExecutor] Previous output length: ${cleanPrevious.length} chars`);
+      console.log(`[AsyncExecutor] Current output length: ${cleanCurrent.length} chars`);
+    }
+
+    // 初回の場合（前回の出力がない）- 何も送信しない
+    if (!cleanPrevious) {
+      if (this.DEBUG) {
+        console.log('[AsyncExecutor] No previous output (first poll), returning empty');
+      }
+      return '';
+    }
+
+    // 出力が短くなった場合（画面クリアの可能性）
+    const possibleScreenClear = cleanCurrent.length < cleanPrevious.length;
+    if (possibleScreenClear) {
+      if (this.DEBUG) {
+        console.log(
+          `[AsyncExecutor] ⚠️ Output size decreased: ${cleanPrevious.length} → ${cleanCurrent.length} (possible screen clear)`
+        );
+        console.log('[AsyncExecutor] Will attempt anchor matching to detect content change');
+      }
+      // 画面クリア後も新しいコンテンツがある可能性があるため、アンカーマッチングを続行
+    }
+
+    // 出力が全く同じ長さの場合のみスキップ
+    if (cleanCurrent.length === cleanPrevious.length) {
+      if (this.DEBUG) {
+        console.log('[AsyncExecutor] Output length unchanged, returning empty');
+      }
+      return '';
+    }
+
+    // ステータスバーを除外してアンカーを作成
+    const prevLines = cleanPrevious.split('\n');
+    const currLines = cleanCurrent.split('\n');
+
+    // ステータスバーと進捗表示を除外
+    const isStatusLine = (line: string): boolean => {
+      const trimmed = line.trim();
+      return (
+        trimmed.includes('esc to interrupt') ||
+        trimmed.includes('Thinking') ||
+        trimmed.includes('Writing') ||
+        trimmed.includes('Reading') ||
+        trimmed.includes('✻') ||
+        trimmed.includes('✢') ||
+        trimmed.includes('∴') ||
+        trimmed.includes('⏵') ||  // ステータスインジケータ
+        trimmed.includes('⎿') ||  // ツリー表示記号
+        trimmed.includes('bypass permissions on') ||  // ステータスバー
+        trimmed.includes('Tip:') ||  // ヒント表示
+        /^\s*\d+%\s*$/.test(trimmed) ||  // 進捗パーセンテージ（例: "9%"）
+        /^[─\-═│┃┌┐└┘├┤┬┴┼]+$/.test(trimmed) ||  // プログレスバーの罫線
+        /^\s+\d+%\s*$/.test(trimmed) ||  // スペース付きパーセンテージ
+        /\d+\s+tokens/.test(trimmed) ||  // トークンカウント（例: "56857 tokens"）
+        /^>/.test(trimmed) ||  // プロンプト行すべて（`>`で始まる行）
+        /^[░▒▓█▀▄■]+$/.test(trimmed) ||  // ボックス描画文字のみの行
+        trimmed.includes('globalVersion') ||  // バージョン情報
+        trimmed.includes('latestVersion')  // バージョン情報
+      );
+    };
+
+    const prevFiltered = prevLines.filter(line => !isStatusLine(line));
+    const currFiltered = currLines.filter(line => !isStatusLine(line));
+
+    if (this.DEBUG) {
+      console.log(`[AsyncExecutor] Previous lines: ${prevLines.length} → ${prevFiltered.length} (after filter)`);
+      console.log(`[AsyncExecutor] Current lines: ${currLines.length} → ${currFiltered.length} (after filter)`);
+    }
+
+    // 【削除】フィルタ後の行数チェックは削除（ステータスバー更新を見逃すため）
+
+    // 空行でない行だけを抽出してアンカーを作成
+    const prevNonEmpty = prevFiltered.filter(line => line.trim().length > 0);
+    const currNonEmpty = currFiltered.filter(line => line.trim().length > 0);
+
+    if (prevNonEmpty.length === 0) {
+      if (this.DEBUG) {
+        console.log('[AsyncExecutor] No non-empty lines in previous output for anchor');
+      }
+      return '';
+    }
+
+    // アンカーポイント方式: 前回の末尾N行（空行除外）を今回の出力から探す
+    const anchorSize = Math.min(10, prevNonEmpty.length); // 末尾10行をアンカーとする
+    const anchorLines = prevNonEmpty.slice(-anchorSize);
+    const anchor = anchorLines.join('\n');
+
+    if (this.DEBUG) {
+      console.log(`[AsyncExecutor] Non-empty lines: prev=${prevNonEmpty.length}, curr=${currNonEmpty.length}`);
+      console.log(`[AsyncExecutor] Anchor size: ${anchorSize} lines (${anchor.length} chars)`);
+      console.log(`[AsyncExecutor] Anchor lines:`);
+      anchorLines.forEach((line, i) => {
+        console.log(`[AsyncExecutor]   [${i}] "${line.substring(0, 80)}"`);
+      });
+    }
+
+    // 今回の出力（空行除外）を文字列に戻す
+    const currNonEmptyStr = currNonEmpty.join('\n');
+
+    // 今回の出力からアンカーを探す
+    const anchorIndex = currNonEmptyStr.indexOf(anchor);
+
+    if (anchorIndex >= 0) {
+      // アンカーが見つかった！その直後から末尾までが新しい内容
+      const diffStartPos = anchorIndex + anchor.length;
+      const diff = currNonEmptyStr.substring(diffStartPos);
+
+      if (this.DEBUG) {
+        console.log(`[AsyncExecutor] ✅ Anchor found at position ${anchorIndex}`);
+        console.log(`[AsyncExecutor] Diff starts at position ${diffStartPos}`);
+        console.log(`[AsyncExecutor] Raw diff length: ${diff.length} chars`);
+
+        if (diff.length === 0) {
+          console.log(`[AsyncExecutor] ⚠️ WARNING: Diff is 0 chars!`);
+          console.log(`[AsyncExecutor] currNonEmptyStr total length: ${currNonEmptyStr.length}`);
+          console.log(`[AsyncExecutor] anchorIndex: ${anchorIndex}, anchor.length: ${anchor.length}`);
+          console.log(`[AsyncExecutor] This means anchor is at the very end of current output`);
+        } else {
+          console.log(`[AsyncExecutor] Raw diff preview (first 500 chars): "${diff.substring(0, 500)}"`);
+        }
+      }
+
+      // さらにフィルタリングして返す
+      const filtered = this.filterOutput(diff);
+
+      if (this.DEBUG) {
+        console.log(`[AsyncExecutor] Filtered diff length: ${filtered.length} chars`);
+        if (filtered.length > 0) {
+          console.log(`[AsyncExecutor] Filtered diff preview (first 300 chars): "${filtered.substring(0, 300)}"`);
+        } else if (diff.length > 0) {
+          console.log(`[AsyncExecutor] ⚠️ WARNING: Raw diff was ${diff.length} chars but filtered to 0!`);
+          console.log(`[AsyncExecutor] All content was filtered out`);
+        }
+      }
+
+      return filtered;
+    } else {
+      // アンカーが見つからない = より小さいアンカー（末尾3行）で再試行
+      const smallAnchorSize = Math.min(3, prevNonEmpty.length);
+      const smallAnchorLines = prevNonEmpty.slice(-smallAnchorSize);
+      const smallAnchor = smallAnchorLines.join('\n');
+      const smallAnchorIndex = currNonEmptyStr.indexOf(smallAnchor);
+
+      if (this.DEBUG) {
+        console.log(`[AsyncExecutor] ⚠️ Anchor not found, trying smaller anchor (${smallAnchorSize} lines)`);
+        console.log(`[AsyncExecutor] Small anchor lines:`);
+        smallAnchorLines.forEach((line, i) => {
+          console.log(`[AsyncExecutor]   [${i}] "${line.substring(0, 80)}"`);
+        });
+      }
+
+      if (smallAnchorIndex >= 0) {
+        const diffStartPos = smallAnchorIndex + smallAnchor.length;
+        const diff = currNonEmptyStr.substring(diffStartPos);
+
+        if (this.DEBUG) {
+          console.log(`[AsyncExecutor] ✅ Small anchor found at position ${smallAnchorIndex}`);
+          console.log(`[AsyncExecutor] Diff length: ${diff.length} chars`);
+
+          if (diff.length === 0) {
+            console.log(`[AsyncExecutor] ⚠️ WARNING: Small anchor diff is also 0 chars!`);
+          } else {
+            console.log(`[AsyncExecutor] Diff preview (first 500 chars): "${diff.substring(0, 500)}"`);
+          }
+        }
+
+        const filtered = this.filterOutput(diff);
+
+        if (this.DEBUG && diff.length > 0 && filtered.length === 0) {
+          console.log(`[AsyncExecutor] ⚠️ WARNING: Small anchor diff was ${diff.length} chars but filtered to 0!`);
+        }
+
+        return filtered;
+      } else {
+        // それでも見つからない
+        if (this.DEBUG) {
+          console.log('[AsyncExecutor] ❌ No anchor found even with small anchor');
+          console.log('[AsyncExecutor] This might be a significant screen change');
+        }
+
+        // 画面クリアの場合、簡潔な通知のみ
+        if (possibleScreenClear) {
+          if (this.DEBUG) {
+            console.log(`[AsyncExecutor] 📺 Screen clear detected, sending notification only`);
+          }
+          return '📺 画面がクリアされました';
+        } else {
+          // 画面クリアではない場合、安全のため空を返す
+          if (this.DEBUG) {
+            console.log('[AsyncExecutor] Returning empty for safety');
+          }
+          return '';
+        }
+      }
+    }
+  }
+
+  /**
+   * 出力をフィルタリング（不要な行を除去）
+   */
+  private filterOutput(output: string): string {
+    const lines = output.split('\n');
+    const filteredLines = lines.filter(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+
+      // Claude Codeの処理中インジケータを除外
+      if (trimmed.startsWith('✢') || trimmed.startsWith('✻') ||
+          trimmed.startsWith('∴') || trimmed.includes('undefined…') ||
+          trimmed.includes('Thinking…') || trimmed.startsWith('⎿') ||
+          trimmed.includes('bypass permissions on') ||
+          trimmed.includes('esc to interrupt') ||
+          /^>[\s　]*$/.test(trimmed) ||
+          /^[─\-═]{10,}$/.test(trimmed)) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return filteredLines.join('\n').trim();
+  }
+
+  /**
+   * 単純ポーリング方式でコマンドを実行
+   * - 10秒ごとに出力をチェック
+   * - 差分があればSlackに送信
+   * - tmuxセッションが存在する限り継続
    */
   async executeCommand(options: ExecutionOptions): Promise<ExecutionResult> {
     const { tmuxSession, command, channelId, threadTs, slackClient } = options;
-    const executionKey = `${channelId}-${threadTs}`;
+    // tmuxSessionを含めることで、複数のセッションを同時に監視可能にする
+    const executionKey = `${channelId}-${threadTs}-${tmuxSession}`;
+
+    // 既に実行中の場合はエラーメッセージを送信して終了
+    if (this.activeExecutions.get(executionKey)) {
+      console.log(`[AsyncExecutor] ⚠️ Already monitoring session ${tmuxSession} in this thread: ${executionKey}`);
+      await slackClient.chat.postMessage({
+        channel: channelId,
+        thread_ts: threadTs,
+        text: `⚠️ セッション ${tmuxSession} は既に監視中です`
+      });
+      return {
+        output: '',
+        duration: 0,
+        completed: false
+      };
+    }
 
     // 実行中フラグをセット
     this.activeExecutions.set(executionKey, true);
@@ -104,285 +358,102 @@ export class AsyncExecutor {
     const initialMessage = await slackClient.chat.postMessage({
       channel: channelId,
       thread_ts: threadTs,
-      text: '🔄 処理中...'
+      text: '🔄 監視開始... (10秒ごとに出力をチェックします)'
     });
 
-    const messageTs = initialMessage.ts as string;
+    const statusMessageTs = initialMessage.ts as string;
     const startTime = Date.now();
+    let sentMessageCount = 0;
 
     try {
       // tmuxにコマンドを送信
+      console.log(`[AsyncExecutor] Sending command to tmux: ${command}`);
       await this.tmuxConnector.sendCommand(tmuxSession, command);
 
       let lastOutput = '';
-      let noChangeCount = 0;
-      let lastUpdateTime = Date.now();
-      let completionCount = 0;  // 完了判定の安定性カウンター
+      let lastStatusUpdate = Date.now();
 
-      // 案1: リアルタイム差分送信用の変数
-      let lastSentOutput = '';  // 前回Slackに送信した出力
-      let sentMessageCount = 0;  // 送信したメッセージ数
-
-      // 完了するまで無限ループ（タイムアウトなし）
+      // 無限ループでポーリング（tmuxセッションが存在する限り）
       while (this.activeExecutions.get(executionKey)) {
-        const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
-        const updateInterval = this.getUpdateInterval(elapsedSeconds);
+        // 10秒待機
+        await this.sleep(this.POLL_INTERVAL);
 
-        // インターバル待機
-        await this.sleep(updateInterval);
+        // tmuxセッションが存在するか確認
+        const sessionExists = await this.tmuxConnector.sessionExists(tmuxSession);
+        if (!sessionExists) {
+          console.log(`[AsyncExecutor] Tmux session ${tmuxSession} no longer exists`);
+          await slackClient.chat.postMessage({
+            channel: channelId,
+            thread_ts: threadTs,
+            text: '⚠️ tmuxセッションが終了しました'
+          });
+          break;
+        }
 
-        // tmuxから出力を取得
+        // tmux出力を取得
         const currentOutput = await this.tmuxConnector.captureOutput(tmuxSession);
 
-        // 出力が変化したか確認
-        const outputChanged = this.tmuxConnector.hasOutputChanged(lastOutput, currentOutput);
+        // 差分を計算
+        const diff = this.calculateDiff(lastOutput, currentOutput);
 
-        if (outputChanged) {
-          noChangeCount = 0;
+        // 差分があればSlackに送信
+        if (diff.length > 0) {
+          console.log(`[AsyncExecutor] New output detected: ${diff.length} chars`);
 
-          // 案1: 差分を抽出して送信
-          if (currentOutput.length > lastSentOutput.length) {
-            // ANSIエスケープシーケンスを除去
-            const cleanOutput = this.removeAnsiEscapeCodes(currentOutput);
-
-            // 「> 」で始まる最後の行を見つける（ユーザーのコマンド入力位置）
-            const lines = cleanOutput.split('\n');
-            let userPromptIndex = -1;
-            for (let i = lines.length - 1; i >= 0; i--) {
-              if (lines[i].trim().startsWith('> ')) {
-                userPromptIndex = i;
-                break;
-              }
-            }
-
-            // ユーザープロンプト以降のみを対象とする
-            const relevantLines = userPromptIndex >= 0 ? lines.slice(userPromptIndex) : lines;
-            const relevantOutput = relevantLines.join('\n');
-
-            // 前回送信分との差分を計算
-            const cleanLastSent = this.removeAnsiEscapeCodes(lastSentOutput);
-            const lastSentRelevantLines = userPromptIndex >= 0 ? cleanLastSent.split('\n').slice(userPromptIndex) : cleanLastSent.split('\n');
-            const lastSentRelevant = lastSentRelevantLines.join('\n');
-
-            if (relevantOutput.length > lastSentRelevant.length) {
-              const diff = relevantOutput.substring(lastSentRelevant.length);
-
-              // 一定量（500文字以上）溜まったら送信
-              if (diff.length >= 500) {
-                console.log(`[AsyncExecutor] Sending incremental output: ${diff.length} chars (from line ${userPromptIndex})`);
-
-                // 処理中インジケータなどをフィルタリング
-                const diffLines = diff.split('\n');
-                const filteredLines = diffLines.filter(line => {
-                  const trimmed = line.trim();
-                  if (!trimmed) return false;
-                  if (trimmed.startsWith('✢') || trimmed.startsWith('✻') ||
-                      trimmed.startsWith('∴') || trimmed.includes('undefined…') ||
-                      trimmed.includes('Thinking…') || trimmed.startsWith('⎿') ||
-                      trimmed.includes('bypass permissions on') ||
-                      trimmed.includes('esc to interrupt') ||
-                      /^>[\s　]*$/.test(trimmed) ||  // プロンプト行のみ除外
-                      /^[─\-═]{10,}$/.test(trimmed)) {  // 装飾線除外
-                    return false;
-                  }
-                  return true;
-                });
-
-                const cleanedDiff = filteredLines.join('\n').trim();
-
-                if (cleanedDiff.length > 0) {
-                  sentMessageCount++;
-                  await slackClient.chat.postMessage({
-                    channel: channelId,
-                    thread_ts: threadTs,
-                    text: `📄 [進行中 ${sentMessageCount}]\n\`\`\`\n${cleanedDiff}\n\`\`\``
-                  });
-
-                  lastSentOutput = currentOutput;
-                }
-              }
-            }
-          }
-        } else {
-          noChangeCount++;
-        }
-
-        // 定期的にステータスメッセージを更新
-        const now = Date.now();
-        if (now - lastUpdateTime >= updateInterval || outputChanged) {
-          const statusText = `🔄 処理中... ⏱️ ${this.formatDuration(elapsedSeconds)}`;
-
-          await slackClient.chat.update({
-            channel: channelId,
-            ts: messageTs,
-            text: statusText
-          });
-
-          lastUpdateTime = now;
-        }
-
-        // 完了判定（安定性チェック付き）
-        if (this.tmuxConnector.isCommandComplete(currentOutput)) {
-          completionCount++;
-          console.log(`[AsyncExecutor] Completion detected (${completionCount}/2), checking stability...`);
-
-          if (completionCount < 2) {
-            // まだ安定していない、次のループで再確認
-            lastOutput = currentOutput;
-            continue;
-          }
-
-          // 2回連続で完了判定が出た！画面が安定するまで待機（出力が変化しなくなるまで）
-          console.log('[AsyncExecutor] Completion confirmed after stability check');
-          let stableOutput = currentOutput;
-          let stabilityCount = 0;
-          const requiredStability = 3;  // 3回連続で変化がなければ安定とみなす
-
-          console.log('[AsyncExecutor] Waiting for output to stabilize...');
-
-          while (stabilityCount < requiredStability) {
-            await this.sleep(1000);  // 1秒待機
-            const newOutput = await this.tmuxConnector.captureOutput(tmuxSession);
-
-            if (newOutput === stableOutput) {
-              stabilityCount++;
-              console.log(`[AsyncExecutor] Output stable (${stabilityCount}/${requiredStability})`);
-            } else {
-              stabilityCount = 0;
-              stableOutput = newOutput;
-              console.log('[AsyncExecutor] Output changed, resetting stability counter');
-            }
-          }
-
-          console.log('[AsyncExecutor] Output stabilized after waiting');
-          const finalOutput = stableOutput;
-          const duration = Math.floor((Date.now() - startTime) / 1000);
-
-          console.log('[AsyncExecutor] === 案1: 完了処理 ===');
-          console.log(`[AsyncExecutor] Total messages sent: ${sentMessageCount}`);
-
-          // 案1: 未送信の差分があれば送信
-          // ANSIエスケープシーケンスを除去
-          const cleanFinalOutput = this.removeAnsiEscapeCodes(finalOutput);
-
-          // 「> 」で始まる最後の行を見つける（ユーザーのコマンド入力位置）
-          const finalLines = cleanFinalOutput.split('\n');
-          let finalUserPromptIndex = -1;
-          for (let i = finalLines.length - 1; i >= 0; i--) {
-            if (finalLines[i].trim().startsWith('> ')) {
-              finalUserPromptIndex = i;
-              console.log(`[AsyncExecutor] Found final user prompt at line ${i}: "${finalLines[i].trim().substring(0, 50)}..."`);
-              break;
-            }
-          }
-
-          // ユーザープロンプト以降のみを対象とする
-          const finalRelevantLines = finalUserPromptIndex >= 0 ? finalLines.slice(finalUserPromptIndex) : finalLines;
-          const finalRelevantOutput = finalRelevantLines.join('\n');
-
-          // 前回送信分も同じ方法で抽出
-          const cleanLastSentOutput = this.removeAnsiEscapeCodes(lastSentOutput);
-          const lastSentLines = cleanLastSentOutput.split('\n');
-          let lastSentUserPromptIndex = -1;
-          for (let i = lastSentLines.length - 1; i >= 0; i--) {
-            if (lastSentLines[i].trim().startsWith('> ')) {
-              lastSentUserPromptIndex = i;
-              break;
-            }
-          }
-          const lastSentRelevantLines = lastSentUserPromptIndex >= 0 ? lastSentLines.slice(lastSentUserPromptIndex) : lastSentLines;
-          const lastSentRelevantOutput = lastSentRelevantLines.join('\n');
-
-          // 差分を計算
-          if (finalRelevantOutput.length > lastSentRelevantOutput.length) {
-            const remainingDiff = finalRelevantOutput.substring(lastSentRelevantOutput.length);
-            console.log(`[AsyncExecutor] Sending final diff: ${remainingDiff.length} chars (from line ${finalUserPromptIndex})`);
-
-            // 処理中インジケータなどをフィルタリング
-            const diffLines = remainingDiff.split('\n');
-            const filteredLines = diffLines.filter(line => {
-              const trimmed = line.trim();
-              if (!trimmed) return false;
-              if (trimmed.startsWith('✢') || trimmed.startsWith('✻') ||
-                  trimmed.startsWith('∴') || trimmed.includes('undefined…') ||
-                  trimmed.includes('Thinking…') || trimmed.startsWith('⎿') ||
-                  trimmed.includes('bypass permissions on') ||
-                  trimmed.includes('esc to interrupt') ||
-                  /^>[\s　]*$/.test(trimmed) ||  // プロンプト行のみ除外
-                  /^[─\-═]{10,}$/.test(trimmed)) {  // 装飾線除外
-                return false;
-              }
-              return true;
+          // 長い差分は分割して送信
+          const chunks = this.splitOutput(diff, 2500);
+          for (let i = 0; i < chunks.length; i++) {
+            sentMessageCount++;
+            await slackClient.chat.postMessage({
+              channel: channelId,
+              thread_ts: threadTs,
+              text: `\`\`\`\n${chunks[i]}\n\`\`\``
             });
-
-            const finalCleanedDiff = filteredLines.join('\n').trim();
-
-            if (finalCleanedDiff.length > 0) {
-              // 最終差分を分割して送信
-              const chunks = this.splitOutput(finalCleanedDiff, 2500);
-              for (let i = 0; i < chunks.length; i++) {
-                sentMessageCount++;
-                await slackClient.chat.postMessage({
-                  channel: channelId,
-                  thread_ts: threadTs,
-                  text: `📄 [最終 ${sentMessageCount}${chunks.length > 1 ? ` - ${i + 1}/${chunks.length}` : ''}]\n\`\`\`\n${chunks[i]}\n\`\`\``
-                });
-              }
-            }
           }
+        }
 
-          // ステータスメッセージを「✅ 完了」に更新
+        // lastOutputは差分の有無に関わらず毎回更新
+        lastOutput = currentOutput;
+
+        // 30秒ごとにステータスメッセージを更新
+        const now = Date.now();
+        if (now - lastStatusUpdate >= 30000) {
+          const elapsedSeconds = Math.floor((now - startTime) / 1000);
           await slackClient.chat.update({
             channel: channelId,
-            ts: messageTs,
-            text: `✅ 完了 (${this.formatDuration(duration)}) - 送信メッセージ数: ${sentMessageCount}`
+            ts: statusMessageTs,
+            text: `🔄 監視中... ⏱️ ${this.formatDuration(elapsedSeconds)} | 送信: ${sentMessageCount}件`
           });
-
-          this.activeExecutions.delete(executionKey);
-
-          return {
-            output: currentOutput,
-            duration,
-            completed: true
-          };
-        } else {
-          // 完了判定が出なかった場合はカウンターをリセット
-          if (completionCount > 0) {
-            console.log('[AsyncExecutor] Completion check reset - still processing');
-            completionCount = 0;
-          }
+          lastStatusUpdate = now;
         }
-
-        // 出力が長時間変化していない場合（5回連続 = 約25-150秒）
-        if (noChangeCount >= 5) {
-          // ユーザーに確認を求める（将来の拡張ポイント）
-          console.log(`[AsyncExecutor] Output hasn't changed for ${noChangeCount} intervals`);
-          // 現時点では継続して待機
-        }
-
-        lastOutput = currentOutput;
       }
 
-      // 実行がキャンセルされた場合
+      // 監視終了
       const duration = Math.floor((Date.now() - startTime) / 1000);
+      await slackClient.chat.update({
+        channel: channelId,
+        ts: statusMessageTs,
+        text: `⏸️ 監視終了 (${this.formatDuration(duration)}) | 送信: ${sentMessageCount}件`
+      });
+
+      this.activeExecutions.delete(executionKey);
+
       return {
         output: lastOutput,
         duration,
-        completed: false
+        completed: true
       };
 
     } catch (error) {
       console.error(`[AsyncExecutor] Error executing command:`, error);
 
-      // エラーメッセージを投稿
       await slackClient.chat.update({
         channel: channelId,
-        ts: messageTs,
+        ts: statusMessageTs,
         text: `❌ エラーが発生しました: ${error instanceof Error ? error.message : 'Unknown error'}`
       });
 
       this.activeExecutions.delete(executionKey);
-
       throw error;
     }
   }
@@ -393,15 +464,7 @@ export class AsyncExecutor {
   cancelExecution(channelId: string, threadTs: string): void {
     const executionKey = `${channelId}-${threadTs}`;
     this.activeExecutions.delete(executionKey);
-  }
-
-  /**
-   * ANSIエスケープシーケンスを除去
-   */
-  private removeAnsiEscapeCodes(text: string): string {
-    // ANSIエスケープシーケンスを除去する正規表現
-    // eslint-disable-next-line no-control-regex
-    return text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1B\[[\?0-9;]*[a-zA-Z]/g, '');
+    console.log(`[AsyncExecutor] Execution cancelled: ${executionKey}`);
   }
 
   /**

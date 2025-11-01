@@ -82,86 +82,18 @@ export class TmuxConnector {
   }
 
   /**
-   * tmuxセッションの出力を取得
+   * tmuxセッションの出力を取得（全履歴）
    * @param sessionName セッション名
-   * @param lines 取得する行数（デフォルト: 200行）
    */
-  async captureOutput(sessionName: string, lines: number = 200): Promise<string> {
+  async captureOutput(sessionName: string): Promise<string> {
     try {
-      // 方法1: ANSIエスケープシーケンスを含めて取得
-      const { stdout: output1 } = await execAsync(`tmux capture-pane -t ${sessionName} -p -e -S -${lines}`);
-
-      // 方法2: 通常のキャプチャ
-      const { stdout: output2 } = await execAsync(`tmux capture-pane -t ${sessionName} -p -S -${lines}`);
-
-      // 方法3: 全履歴を取得
-      const { stdout: output3 } = await execAsync(`tmux capture-pane -t ${sessionName} -p -e -S -`);
-
-      // 「esc to interrupt」が含まれているものを優先
-      if (output1.toLowerCase().includes('esc to interrupt')) {
-        console.log('[TmuxConnector] Found "esc to interrupt" in output1 (with ANSI)');
-        return output1;
-      }
-      if (output2.toLowerCase().includes('esc to interrupt')) {
-        console.log('[TmuxConnector] Found "esc to interrupt" in output2 (normal)');
-        return output2;
-      }
-      if (output3.toLowerCase().includes('esc to interrupt')) {
-        console.log('[TmuxConnector] Found "esc to interrupt" in output3 (full history)');
-        return output3;
-      }
-
-      // どれにも含まれていない場合は最も長いものを返す
-      console.log('[TmuxConnector] "esc to interrupt" not found in any output');
-      console.log(`[TmuxConnector] output1 length: ${output1.length}, output2 length: ${output2.length}, output3 length: ${output3.length}`);
-
-      if (output3.length > output1.length && output3.length > output2.length) {
-        return output3;
-      } else if (output1.length > output2.length) {
-        return output1;
-      } else {
-        return output2;
-      }
+      // 全履歴を取得（ANSIエスケープシーケンス付き）
+      const { stdout } = await execAsync(`tmux capture-pane -t ${sessionName} -p -e -S -`);
+      return stdout;
     } catch (error) {
       console.error(`Failed to capture output from ${sessionName}:`, error);
       return '';
     }
-  }
-
-  /**
-   * コマンドが完了したか判定
-   * 「esc to interrupt」が表示されていない = 完了
-   */
-  isCommandComplete(output: string): boolean {
-    if (!output) return false;
-
-    // 最後の10行のみをチェック（Claude Codeのステータスバーは画面の最下部にあるため）
-    const lines = output.split('\n');
-    const lastLines = lines.slice(-10).join('\n');
-
-    // 処理中インジケータをチェック
-    const processingIndicators = [
-      /esc to interrupt/i,   // Claude Code処理中（最重要）
-    ];
-
-    // 最後の10行のみをチェック
-    for (const pattern of processingIndicators) {
-      if (pattern.test(lastLines)) {
-        console.log('[TmuxConnector] Still processing: found processing indicator in last 10 lines');
-        return false;
-      }
-    }
-
-    // 処理中インジケータがなければ完了
-    console.log('[TmuxConnector] Command completed: no processing indicators found in last 10 lines');
-    return true;
-  }
-
-  /**
-   * 出力が変化したか確認
-   */
-  hasOutputChanged(previousOutput: string, currentOutput: string): boolean {
-    return previousOutput !== currentOutput;
   }
 
   /**
