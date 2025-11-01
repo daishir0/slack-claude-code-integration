@@ -336,19 +336,17 @@ export class AsyncExecutor {
     // tmuxSessionを含めることで、複数のセッションを同時に監視可能にする
     const executionKey = `${channelId}-${threadTs}-${tmuxSession}`;
 
-    // 既に実行中の場合はエラーメッセージを送信して終了
+    // 既に実行中の場合は、既存の監視を停止して新しい監視を開始
     if (this.activeExecutions.get(executionKey)) {
-      console.log(`[AsyncExecutor] ⚠️ Already monitoring session ${tmuxSession} in this thread: ${executionKey}`);
-      await slackClient.chat.postMessage({
-        channel: channelId,
-        thread_ts: threadTs,
-        text: `⚠️ セッション ${tmuxSession} は既に監視中です`
-      });
-      return {
-        output: '',
-        duration: 0,
-        completed: false
-      };
+      console.log(`[AsyncExecutor] ⚠️ Session ${tmuxSession} is already being monitored. Stopping old monitoring and starting new one.`);
+      this.activeExecutions.delete(executionKey);
+      // await slackClient.chat.postMessage({
+      //   channel: channelId,
+      //   thread_ts: threadTs,
+      //   text: `⚠️ セッション ${tmuxSession} の既存の監視を停止して、新しいコマンドの監視を開始します`
+      // });
+      // 既存の監視が停止するまで少し待つ
+      await this.sleep(2000);
     }
 
     // 実行中フラグをセット
