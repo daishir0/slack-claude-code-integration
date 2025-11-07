@@ -45,12 +45,8 @@ if not token:
 client = WebClient(token=token)
 
 try:
-    # Step 1: Open DM channel
-    dm_response = client.conversations_open(users=["U09845QTFH7"])
-    dm_channel_id = dm_response['channel']['id']
-    print(f"✅ DMチャンネルID: {dm_channel_id}")
-
-    # Step 2: Upload file
+    # Upload file directly to DM channel
+    dm_channel_id = "D09PDFREBGF"
     result = client.files_upload_v2(
         channel=dm_channel_id,
         file="$FILE_PATH",
